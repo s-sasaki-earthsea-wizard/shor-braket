@@ -14,7 +14,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 |---|---|---|---|
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（古典前処理 + 位数発見回路）** | **高** | ⬜ 未着手 |
-| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ⬜ 未着手 |
+| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 Docker 環境と Bell 回路の動作確認を実装。Shor 検証・ゲートは未着手 |
 | Phase 3 | Terraform による AWS リソース定義 | 低 | ⏸️ 中断中（IAM は構築済み・[issues](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues?q=is%3Aissue+is%3Aopen+label%3Apending)） |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
@@ -26,7 +26,8 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 先に固めてあり、着手はローカルが通ってから。ローカルシミュレータは無料で AWS 認証も不要なので、
 `make setup` だけで開発を始められる。
 
-現時点では `src/` 配下は未実装。設計ドキュメントと骨組みのみ。
+現時点では Docker 開発環境、ローカル実行 runner、Bell 回路の動作確認 CLI とテストを実装済み。
+Shor の位数発見回路と実行ゲートは未実装。
 
 ---
 
@@ -116,6 +117,11 @@ shor-braket/
 ├── LICENSE                      # Apache License 2.0
 ├── .env.example                 # 環境変数テンプレート（.env は gitignore）
 ├── pyproject.toml
+├── .dockerignore                # ビルドに必要なファイルだけを送る
+├── docker/
+│   ├── Dockerfile               # Python 3.12 + Braket SDK + 開発ツール
+│   ├── docker-compose.yml       # ローカル実行環境
+│   └── requirements.txt         # Docker 内の依存バージョン
 ├── Makefile
 ├── makefiles/                   # 分割した make ターゲット
 ├── docs/
@@ -124,7 +130,7 @@ shor-braket/
 │   ├── 03-execution-gate.md          # 実行ゲートの仕様
 │   ├── 04-devices-and-cost.md        # Braket デバイスと課金
 │   └── adr/                          # Architecture Decision Records
-├── src/shor_braket/             # 実装（未着手）
+├── src/shor_braket/             # CLI とローカル runner（Shor 本体は未着手）
 ├── tests/                       # pytest
 ├── infra/
 │   ├── iam/                     # IAM ポリシー JSON（Deny ガードレール込み）
@@ -140,12 +146,46 @@ shor-braket/
 
 ### Phase 1–2（ローカルのみ・AWS 不要）
 
+ホスト側に必要なのは **Docker Engine / Docker Desktop、Docker Compose v2、make**。
+Docker を起動してから、リポジトリのルートで実行する。ホストの Python 環境は不要。
+
 ```bash
-make setup     # 依存関係のインストール
-make sim N=15  # ローカルシミュレータ（無料・認証不要）
+make setup                      # requirements.txt から Docker イメージを構築
+make sim-smoke                   # Bell 回路を 1000 shots で実行
+make sim-smoke SHOTS=256         # ショット数を指定
+make check                      # ruff + mypy + pytest
+make test-cov                   # カバレッジ（runs/coverage/index.html に出力）
+make shell                      # 同じ環境の bash に入る（exit で終了）
 ```
 
-ローカルシミュレータは AWS へのリクエストを一切発生させない。**ここまでは認証設定不要。**
+`sim-smoke` は 2 qubit の Bell 状態を測定し、`00` / `11` の測定回数を JSON で表示する。
+測定回数の内訳は実行ごとに変わる。テストでは shots=0 の厳密な確率が
+`[0.5, 0, 0, 0.5]` となることも確認する。
+これは環境の動作確認であり、Shor の位数発見や validated レコードの発行は行わない。
+`make sim N=15` / `make sim-all` は引き続き未実装。
+
+ローカル実行用コンテナはネットワークを無効化して動かす。**AWS 認証や `.env` は不要。**
+Docker イメージの初回ビルドと依存更新時にはネット接続が必要。
+
+`src/`、`tests/`、`runs/` と設定ファイルを `/workspace` 配下へ個別に bind mount する。
+これによりコード変更は即座に反映され、整形結果・カバレッジ・シミュレーション結果は
+ホストに残る。AWS 資格情報やリポジトリ全体はコンテナへ渡さない。
+make はホストの UID/GID でコンテナを実行し、各コマンドの終了時にコンテナを削除する。
+
+Python ベースイメージは digest で固定し、実行時・テスト・静的解析を含む依存関係は
+`docker/requirements.txt` に固定バージョンで定義する。依存関係を変更するときは
+requirements と、パッケージの実行時依存を表す `pyproject.toml` を必要に応じて更新する。
+
+```bash
+# Edit docker/requirements.txt and pyproject.toml when needed.
+make setup
+make check
+```
+
+ベースイメージを更新する場合は `docker/Dockerfile` のタグと digest を合わせて更新する。
+Compose の残ったコンテナやネットワークは `make docker-down` で片付けられる。
+
+参考: [Braket のローカルシミュレータ](https://docs.aws.amazon.com/braket/latest/developerguide/braket-send-to-local-simulator.html)。
 
 ### Phase 3 以降（AWS）
 

@@ -1,0 +1,25 @@
+name: shor-braket
+
+services:
+  local:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    init: true
+    working_dir: /workspace
+    volumes:
+      - ../src:/workspace/src
+      - ../tests:/workspace/tests
+      - ../runs:/workspace/runs
+      - ../pyproject.toml:/workspace/pyproject.toml:ro
+      - ../docker/requirements.txt:/workspace/docker/requirements.txt:ro
+    # Dependencies are installed at build time; simulations and checks run offline.
+    network_mode: none
+    environment:
+      AWS_EC2_METADATA_DISABLED: "true"
+      COVERAGE_FILE: /tmp/.coverage
+      MYPY_CACHE_DIR: /tmp/mypy-cache
+      PIP_NO_CACHE_DIR: "1"
+      RUFF_CACHE_DIR: /tmp/ruff-cache
+    command: ["shor-braket", "smoke"]

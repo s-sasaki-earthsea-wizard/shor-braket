@@ -1,0 +1,11 @@
+# Only send build inputs, excluding AWS credentials, Terraform state and run artifacts.
+*
+!pyproject.toml
+!README.md
+!LICENSE
+!docker/
+!docker/requirements.txt
+!src/
+!src/**
+**/__pycache__/
+**/*.py[cod]

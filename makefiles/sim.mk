@@ -1,5 +1,9 @@
 # Local simulator — 無料。AWS へのリクエストは発生しない
 
+.PHONY: sim-smoke
+sim-smoke:  ## Bell 状態の回路で Docker のローカルシミュレータを動作確認する
+	$(LOCAL_RUN) shor-braket smoke --shots "$(SHOTS)"
+
 .PHONY: sim
 sim:  ## ローカルシミュレータで位数発見を実行し検証する (例: make sim N=15)
 	$(call notimpl,make sim,docs/02-architecture.md / Phase 1-2)

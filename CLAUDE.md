@@ -20,6 +20,15 @@ Terraform で構築済みで、root アクセスキーも廃止済み。残り�
 次に着手するのは issue #6（アサーション A1 の指標が誤っている）。これは Phase 1 の実装より前に
 ドキュメントを直す必要がある。
 
+**ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
+`make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
+ベースイメージは digest、Python 依存は `docker/requirements.txt` で固定。
+`make sim-smoke` は Bell 回路の動作確認、`make check` は ruff / mypy / pytest、
+`make shell` は同じコンテナの bash。ローカル実行はネットワーク無効・AWS 認証不要。
+`src/`、`tests/`、`runs/` と必要な設定だけをコンテナへ mount する。
+`src/shor_braket/runner/local.py` はローカル実行のみを担い、validated レコードは発行しない。
+**Shor 本体と実行ゲートは未実装**で、`make sim` / `sim-all` は未実装ガードを維持する。
+
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
 コード・ドキュメント・パッケージ名はすべて `braket` で統一する。
@@ -169,7 +178,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 |---|---|---|---|
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ⬜ |
-| 2 | ローカルシミュレータ検証と実行ゲート | **高** | ⬜ |
+| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 Docker 環境・Bell 回路の動作確認まで。Shor 検証・ゲートは未着手 |
 | 3 | Terraform による AWS リソース定義 | 低 | ⏸️ **中断中**。IAM は構築済み（2026-09-13）。残りは issue #1–#4 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |
