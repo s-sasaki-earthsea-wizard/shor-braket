@@ -1,0 +1,51 @@
+# shor-braket — Terraform 変数のテンプレート
+#
+# cp terraform.tfvars.example terraform.tfvars して値を埋めること。
+# terraform.tfvars は .gitignore 対象 (*.tfvars)。値をコミットしないこと。
+#
+# 対応する変数定義は variables.tf (Phase 3 で作成)。
+
+# ---- アカウント / リージョン ----
+aws_account_id = "000000000000"
+
+# 結果保存用 S3 バケットを置くリージョン。
+# 主に使う QPU のリージョンに寄せてクロスリージョン転送料を避ける。
+# IQM (garnet/emerald) を使うなら eu-north-1
+results_bucket_region = "eu-north-1"
+
+# ---- S3 ----
+# amazon-braket- プレフィクスを推奨 (AmazonBraketFullAccess の前提に合わせる)
+results_bucket_name = "amazon-braket-CHANGE-ME"
+
+# 生の測定結果を Glacier に移すまでの日数
+results_transition_days = 90
+
+# ---- IAM ----
+iam_user_name = "shor-braket"
+
+# CreateQuantumTask を拒否するデバイス ARN パターン。
+# 根拠は infra/iam/README.md §4 を参照
+denied_device_arns = [
+  "arn:aws:braket:*:*:device/qpu/ionq/*",
+  "arn:aws:braket:*:*:device/qpu/aqt/*",
+  "arn:aws:braket:*:*:device/qpu/quera/*",
+  "arn:aws:braket:*:*:device/qpu/xanadu/*",
+  "arn:aws:braket:*:*:device/qpu/oqc/*",
+  "arn:aws:braket:*:*:device/qpu/pasqal/*",
+]
+
+# ---- コスト ----
+monthly_budget_usd = 100
+
+# 予算アラートの通知先。SNS のサブスクリプション確認メールが届く
+budget_notification_email = "CHANGE-ME@example.com"
+
+# アラートを出す閾値 (%). 予測値 100% も別途通知する
+budget_alert_thresholds = [50, 80, 100]
+
+# ---- タグ ----
+tags = {
+  Project     = "shor-braket"
+  ManagedBy   = "terraform"
+  AmazonBraket = "true"
+}

@@ -1,0 +1,85 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BraketDeviceDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "braket:GetDevice",
+        "braket:SearchDevices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BraketQuantumTasks",
+      "Effect": "Allow",
+      "Action": [
+        "braket:CreateQuantumTask",
+        "braket:GetQuantumTask",
+        "braket:SearchQuantumTasks",
+        "braket:CancelQuantumTask",
+        "braket:ListTagsForResource",
+        "braket:TagResource",
+        "braket:UntagResource"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "Bool": {
+          "aws:MultiFactorAuthPresent": "true"
+        }
+      }
+    },
+    {
+      "Sid": "BraketServiceLinkedRole",
+      "Effect": "Allow",
+      "Action": "iam:CreateServiceLinkedRole",
+      "Resource": "arn:aws:iam::*:role/aws-service-role/braket.amazonaws.com/AWSServiceRoleForAmazonBraket*",
+      "Condition": {
+        "StringEquals": {
+          "iam:AWSServiceName": "braket.amazonaws.com"
+        }
+      }
+    },
+    {
+      "Sid": "ResultsBucketAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::<RESULTS_BUCKET>"
+    },
+    {
+      "Sid": "ResultsObjectAccess",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:PutObject"
+      ],
+      "Resource": "arn:aws:s3:::<RESULTS_BUCKET>/*"
+    },
+    {
+      "Sid": "BraketUsageLogs",
+      "Effect": "Allow",
+      "Action": [
+        "logs:CreateLogGroup",
+        "logs:CreateLogStream",
+        "logs:PutLogEvents",
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:<AWS_ACCOUNT_ID>:log-group:/aws/braket*"
+    },
+    {
+      "Sid": "CostEstimation",
+      "Effect": "Allow",
+      "Action": [
+        "pricing:GetProducts",
+        "servicequotas:GetServiceQuota",
+        "budgets:ViewBudget"
+      ],
+      "Resource": "*"
+    }
+  ]
+}

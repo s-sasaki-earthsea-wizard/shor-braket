@@ -1,0 +1,18 @@
+{
+  "_comment": "EXPERIMENTAL — AWS のドキュメントに存在しない書き方。必ず iam simulate-principal-policy で検証してから使うこと。infra/iam/README.md §5 を読むこと。",
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyEverythingExceptAllowedDevices",
+      "Effect": "Deny",
+      "Action": "braket:CreateQuantumTask",
+      "NotResource": [
+        "arn:aws:braket:eu-north-1:*:device/qpu/iqm/Garnet",
+        "arn:aws:braket:eu-north-1:*:device/qpu/iqm/Emerald",
+        "arn:aws:braket:us-west-1:*:device/qpu/rigetti/Cepheus-1-108Q",
+        "arn:aws:braket:*:*:device/quantum-simulator/*",
+        "arn:aws:braket:*:*:quantum-task/*"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,73 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "BraketDeviceDiscovery",
+      "Effect": "Allow",
+      "Action": [
+        "braket:GetDevice",
+        "braket:SearchDevices"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BraketTaskRead",
+      "Effect": "Allow",
+      "Action": [
+        "braket:GetQuantumTask",
+        "braket:SearchQuantumTasks",
+        "braket:ListTagsForResource"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "ResultsBucketRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:ListBucket",
+        "s3:GetBucketLocation"
+      ],
+      "Resource": "arn:aws:s3:::<RESULTS_BUCKET>"
+    },
+    {
+      "Sid": "ResultsObjectRead",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject"
+      ],
+      "Resource": "arn:aws:s3:::<RESULTS_BUCKET>/*"
+    },
+    {
+      "Sid": "BraketLogsRead",
+      "Effect": "Allow",
+      "Action": [
+        "logs:DescribeLogGroups",
+        "logs:DescribeLogStreams",
+        "logs:GetLogEvents",
+        "logs:FilterLogEvents"
+      ],
+      "Resource": "arn:aws:logs:*:<AWS_ACCOUNT_ID>:log-group:/aws/braket*"
+    },
+    {
+      "Sid": "CostEstimationRead",
+      "Effect": "Allow",
+      "Action": [
+        "pricing:GetProducts",
+        "servicequotas:GetServiceQuota",
+        "budgets:ViewBudget"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AssumeExecutionRoleWithMfa",
+      "Effect": "Allow",
+      "Action": "sts:AssumeRole",
+      "Resource": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ShorBraketExecutionRole",
+      "Condition": {
+        "Bool": {
+          "aws:MultiFactorAuthPresent": "true"
+        }
+      }
+    }
+  ]
+}

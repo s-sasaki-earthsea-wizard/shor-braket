@@ -1,0 +1,55 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyHighCostQpuProviders",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateQuantumTask",
+        "braket:CreateJob"
+      ],
+      "Resource": [
+        "arn:aws:braket:*:*:device/qpu/ionq/*",
+        "arn:aws:braket:*:*:device/qpu/aqt/*",
+        "arn:aws:braket:*:*:device/qpu/quera/*",
+        "arn:aws:braket:*:*:device/qpu/xanadu/*",
+        "arn:aws:braket:*:*:device/qpu/oqc/*",
+        "arn:aws:braket:*:*:device/qpu/pasqal/*"
+      ]
+    },
+    {
+      "Sid": "DenyTaskCreationWithoutMfa",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateQuantumTask",
+        "braket:CancelQuantumTask",
+        "braket:CreateJob"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:MultiFactorAuthPresent": "false"
+        }
+      }
+    },
+    {
+      "Sid": "DenyHybridJobsEntirely",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateJob",
+        "braket:CancelJob"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "DenyNotebookInstances",
+      "Effect": "Deny",
+      "Action": [
+        "sagemaker:CreateNotebookInstance",
+        "sagemaker:StartNotebookInstance",
+        "sagemaker:CreatePresignedNotebookInstanceUrl"
+      ],
+      "Resource": "*"
+    }
+  ]
+}
