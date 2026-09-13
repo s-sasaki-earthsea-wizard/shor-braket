@@ -212,9 +212,34 @@ head_ "2. MFA device"
 if [ "$has_mfa" = 1 ]; then
   say "already enabled, skipping"
 else
-  if aws iam list-virtual-mfa-devices --assignment-status Unassigned \
-       --query 'VirtualMFADevices[].SerialNumber' --output text | grep -qF "$MFA_SERIAL"; then
-    say "reusing unassigned virtual device $MFA_NAME"
+  stale=0
+  aws iam list-virtual-mfa-devices --assignment-status Unassigned \
+      --query 'VirtualMFADevices[].SerialNumber' --output text | grep -qF "$MFA_SERIAL" && stale=1
+
+  if [ "$stale" = 1 ]; then
+    # A device created by an earlier run that never got enabled. Its seed only
+    # exists inside the authenticator app that scanned the QR; the PNG is gone.
+    say "A virtual MFA device named '$MFA_NAME' exists but was never enabled."
+    say "That happens when a previous run was interrupted."
+    say ""
+    say "Is it already in your authenticator app (did you scan that QR)?"
+    printf '  [y] enter codes from it   [n] delete it and issue a new QR : '
+    read -r reuse
+    case "$reuse" in
+      y|Y) say "reusing $MFA_NAME" ;;
+      *)   aws iam delete-virtual-mfa-device --serial-number "$MFA_SERIAL"
+           say "deleted the unusable device"
+           aws iam create-virtual-mfa-device --virtual-mfa-device-name "$MFA_NAME" \
+             --outfile "$WORK/qr.png" --bootstrap-method QRCodePNG >/dev/null
+           say "created a fresh virtual device $MFA_NAME"
+           say "opening the QR code; scan it with your authenticator app"
+           say "the PNG holds the seed and is deleted when this script exits"
+           open "$WORK/qr.png" 2>/dev/null || say "open failed, view: $WORK/qr.png"
+           say ""
+           say "Scan it now, before continuing."
+           printf '  press Enter when scanned: '
+           read -r _ ;;
+    esac
   else
     aws iam create-virtual-mfa-device --virtual-mfa-device-name "$MFA_NAME" \
       --outfile "$WORK/qr.png" --bootstrap-method QRCodePNG >/dev/null
