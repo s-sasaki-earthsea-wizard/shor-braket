@@ -15,9 +15,12 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（古典前処理 + 位数発見回路）** | **高** | ⬜ 未着手 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ⬜ 未着手 |
-| Phase 3 | Terraform による AWS リソース定義 | 低 | 🔶 IAM のみ実装（2026-09-13） |
+| Phase 3 | Terraform による AWS リソース定義 | 低 | ⏸️ 中断中（IAM は構築済み・[issues](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues?q=is%3Aissue+is%3Aopen+label%3Apending)） |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
+
+**2026-09-13: AWS 側の構築を中断し、ローカルシミュレータに専念する。** IAM までは構築済み。
+残作業は [`pending` ラベルの issue](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues?q=is%3Aissue+is%3Aopen+label%3Apending) を参照。
 
 **まずローカルシミュレータを動かす（Phase 1–2）。** AWS 側（Phase 3 以降）は設計だけ
 先に固めてあり、着手はローカルが通ってから。ローカルシミュレータは無料で AWS 認証も不要なので、
