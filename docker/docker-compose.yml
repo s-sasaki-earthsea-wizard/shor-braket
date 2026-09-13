@@ -12,6 +12,7 @@ services:
       - ../src:/workspace/src
       - ../tests:/workspace/tests
       - ../runs:/workspace/runs
+      - ../devices:/workspace/devices
       - ../pyproject.toml:/workspace/pyproject.toml:ro
       - ../docker/requirements.txt:/workspace/docker/requirements.txt:ro
     # Dependencies are installed at build time; simulations and checks run offline.
