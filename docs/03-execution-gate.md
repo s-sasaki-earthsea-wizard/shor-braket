@@ -102,6 +102,17 @@ Phase 1 の行列参照回路は A1〜A3 の基準値を作るが、`qpu_eligibl
 発行しない。QPU 互換回路では A4〜A5に加え、対象機へ変換した verbatim 回路を校正データ付き
 `LocalEmulator`で実行する。エミュレーションした回路と投入回路のハッシュが一致しなければ拒否する。
 
+`LocalEmulator` の実測（2026-09-14、Wiki「LocalEmulator で実機の手前まで」）で確定した制約:
+
+- 回路は **verbatim box 必須**。無ければ `EmulatorValidationError` で止まる。中は対象機のネイティブゲート
+  だけが通り、物理 qubit 番号と接続グラフも検査される
+- SDK にトランスパイラは無い。ネイティブ分解は `quantum/native.py` に手書きし、`to_unitary` で検証する
+- 密行列参照回路は verbatim の有無にかかわらず拒否される（`X` / `Unitary` が非ネイティブ）
+- ノイズは 1 qubit depolarizing、readout bit-flip、2 qubit depolarizing の 3 種のみ。T1/T2、クロストーク、
+  リーケージは含まれない。実機より楽観的な見積りになりうる
+- 校正データは `devices/snapshots/` のスナップショットから読む（`make device-snapshot`）。結果には
+  `capabilities_sha256` と `calibration_updated_at` を残し、古い校正での結果を現在値として扱わない
+
 ### 4.2 保存場所
 
 ```

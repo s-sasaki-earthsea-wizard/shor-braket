@@ -14,7 +14,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 |---|---|---|---|
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
-| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証と結果保存を実装。QPU互換回路・投入ゲートは未着手 |
+| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証・結果保存・LocalEmulator 互換性スパイク（3 機）を実装。QPU互換回路・投入ゲートは未着手 |
 | Phase 3 | Terraform による AWS リソース定義 | 次 | ⬜ IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
@@ -26,6 +26,12 @@ S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
 連分数による位数復元、3 × 5 の導出、同時分布検証、JSON 結果保存を実装済み。
 この参照回路は密行列を使うため **QPU 投入不可**。QPU 互換回路と投入ゲートは別実装とする。
+
+**2026-09-14: LocalEmulator 互換性スパイク完了。** IQM Garnet / Emerald、AQT IBEX Q1 の校正データを
+`devices/snapshots/` にコミットし、`make emulate-all` が Docker 内（ネットワーク無効）で verbatim 検証と
+校正ノイズ付き実行を行う。密行列参照回路は verbatim の有無にかかわらず拒否され、ネイティブゲートで
+手書きした Bell / GHZ だけが通る。解説は Wiki
+[LocalEmulator で実機の手前まで](https://github.com/s-sasaki-earthsea-wizard/shor-braket/wiki/Local-Emulator-Compatibility-Report)。
 
 ---
 
@@ -123,13 +129,15 @@ shor-braket/
 │   └── requirements.txt         # Docker 内の依存バージョン
 ├── Makefile
 ├── makefiles/                   # 分割した make ターゲット
+├── devices/
+│   └── snapshots/               # 3 機の校正データ（GetDevice の保存。公開情報のみ、コミット対象）
 ├── docs/
 │   ├── 01-why-n6-is-degenerate.md   # N=6 の数論的縮退の詳細
 │   ├── 02-architecture.md            # モジュール構成と回路設計
 │   ├── 03-execution-gate.md          # 実行ゲートの仕様
 │   ├── 04-devices-and-cost.md        # Braket デバイスと課金
 │   └── adr/                          # Architecture Decision Records
-├── src/shor_braket/             # 行列参照回路、古典後処理、CLI、ローカル runner
+├── src/shor_braket/             # 行列参照回路、ネイティブ回路、古典後処理、CLI、ローカル runner / emulator
 ├── tests/                       # pytest
 ├── infra/
 │   ├── iam/                     # IAM ポリシー JSON（Deny ガードレール込み）
@@ -155,6 +163,9 @@ make sim-smoke SHOTS=256         # ショット数を指定
 make sim                         # N=15 を因数分解し、過程を SVG/PNG/HTML で可視化
 make sim SHOTS=256               # shots を変更して実行
 make qpu-costs SHOTS=1000        # 将来の QPU 候補 3 機の概算を表示（AWS 接続なし）
+make emulate DEVICE=garnet       # 校正スナップショットから LocalEmulator を組み、ネイティブ回路を検証・実行
+make emulate-all                 # 3 機の比較図と report.md を生成（オフライン）
+make device-info DEVICE=garnet   # スナップショットの qubit 数・忠実度・価格・実行窓を表示
 make check                      # ruff + mypy + pytest
 make test-cov                   # カバレッジ（runs/coverage/index.html に出力）
 make shell                      # 同じ環境の bash に入る（exit で終了）
@@ -182,6 +193,14 @@ SVGは拡大しても数式やラベルが鮮明な教材用、PNGはスライ�
 
 `make sim-all` は N=15 に加えて N=6 の縮退ケースも実行する。N=6 では位数2を復元できるが、
 $a^{r/2} \equiv -1 \pmod 6$ のため量子部分から非自明な因数は得られないことを確認する。
+
+`make emulate DEVICE=garnet` は `devices/snapshots/garnet.json` から Braket SDK の `LocalEmulator` を組み、
+密行列参照回路・教科書どおりの Bell・ネイティブゲートの Bell / GHZ を検証行列にかけたうえで、
+通った回路を校正ノイズ付き density-matrix シミュレータで実行する。結果は
+`runs/raw/emulator-garnet-*/result.json` と `figures/` に保存され、`make emulate-all` は 3 機分に加えて
+`runs/raw/emulator-comparison-*/` に比較図と `report.md` を書く。これらは Shor の回路ではなく互換性の
+確認であり、validated レコードは発行しない。校正データの再取得は `make device-snapshot`
+（`GetDevice` のみ・課金なし・読み取りプロファイル）。
 
 ローカル実行用コンテナはネットワークを無効化して動かす。**AWS 認証や `.env` は不要。**
 Docker イメージの初回ビルドと依存更新時にはネット接続が必要。
@@ -260,6 +279,7 @@ MFA 必須の管理者ロールを作り、root キーを削除する。`make tf
 ```bash
 make help          # 全ターゲットの一覧
 make devices       # Braket デバイスの現況確認（無料・読み取りのみ）
+make device-snapshot  # 3 機の校正データを devices/snapshots へ保存（GetDevice のみ・課金なし）
 make validated     # 検証済みレコードの一覧
 make iam-lint      # IAM ポリシー JSON の構文検証
 make iam-render    # .env の値でプレースホルダを展開
@@ -273,6 +293,9 @@ make iam-verify    # IAM ガードレールの効果をポリシーシミュレ�
 make sim N=15
 make sim N=6 A=5 T=1
 make qpu-costs SHOTS=1000
+
+# 1b. 校正データ付き LocalEmulator で verbatim 回路を検証（無料・オフライン）
+make emulate-all
 
 # 2. 検証済みレコードの確認
 make validated

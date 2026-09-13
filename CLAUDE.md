@@ -17,8 +17,14 @@ AWS リソースは Terraform 管理。
 Terraform で構築済みで、root アクセスキーも廃止済み。残りは GitHub issue #1–#5 に記録してある。
 **実機実行が現実味を帯びるまで再開しない。** 再開の入口は issue #1。
 
-次に着手するのは issue #6（アサーション A1 の指標が誤っている）。これは Phase 1 の実装より前に
-ドキュメントを直す必要がある。
+issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と LocalEmulator 実行ゲート）。
+
+**2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
+`devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
+課金も Terraform も不要。`make emulate` / `emulate-all` はオフラインで verbatim 検証と校正ノイズ付き実行を行う。
+QPU 互換の N=15 回路（swap network の U_7 / U_4、`generic-constant`、t=2 で 6 qubit）は未実装。着手時は
+「15 = 2^4 − 1 を使う N=15 専用の乗算分解」であることと、`generic-repeated` が数千ゲートで不可能なことを
+記録に明記する。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
@@ -27,7 +33,8 @@ Terraform で構築済みで、root アクセスキーも廃止済み。残り�
 `make shell` は同じコンテナの bash。ローカル実行はネットワーク無効・AWS 認証不要。
 `src/`、`tests/`、`runs/` と必要な設定だけをコンテナへ mount する。
 `src/shor_braket/runner/local.py` はローカル実行のみを担い、validated レコードは発行しない。
-**Shor 本体と実行ゲートは未実装**で、`make sim` / `sim-all` は未実装ガードを維持する。
+`make sim` / `sim-all` は N=15 / N=6 の行列参照回路を実行して教材を生成する。
+**QPU 互換回路と投入ゲートは未実装**で、`make submit-*` は未実装ガードを維持する。
 
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
@@ -105,6 +112,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - デバイス ARN をハードコードしない。論理名 → ARN のマップを設定ファイルに置き、
   起動時に `search-devices` で実在検証する
 - Braket SDK を第一級とする。Qiskit からの変換レイヤは挟まない
+- `LocalEmulator` は verbatim box 必須・ネイティブゲートのみ・物理 qubit と接続性を検査する。SDK に
+  トランスパイラは無いので、ネイティブ分解は `quantum/native.py` に手書きし `to_unitary` で検証する
+- エミュレーション結果（`execution.class = local-emulator`）を validated レコードにしない。結果には
+  スナップショットの `capabilities_sha256` と `calibration_updated_at` を残し、古い校正の結果を現在値として扱わない
+- IQM の CNOT は `prx` 4 枚 + `cz` 1 枚。qubit 選択は 2 qubit 忠実度だけでなく参加 qubit の 1 qubit RB も見る
 
 ---
 
@@ -177,8 +189,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | Phase | 内容 | 優先度 | 状態 |
 |---|---|---|---|
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
-| 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ⬜ |
-| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 Docker 環境・Bell 回路の動作確認まで。Shor 検証・ゲートは未着手 |
+| 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
+| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク（3 機、2026-09-14）まで。QPU 互換回路・投入ゲートは未着手 |
 | 3 | Terraform による AWS リソース定義 | 低 | ⏸️ **中断中**。IAM は構築済み（2026-09-13）。残りは issue #1–#4 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |
