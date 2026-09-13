@@ -249,13 +249,23 @@ else
     open "$WORK/qr.png" 2>/dev/null || say "open failed, view: $WORK/qr.png"
   fi
   say ""
-  say "Enter two consecutive codes."
-  printf '  code 1: '; read -r C1
-  printf '  code 2: '; read -r C2
-  aws iam enable-mfa-device --user-name "$BASE_USER" --serial-number "$MFA_SERIAL" \
-    --authentication-code1 "$C1" --authentication-code2 "$C2"
-  unset C1 C2
-  say "MFA enabled on $BASE_USER"
+  say "AWS needs two CONSECUTIVE codes, not the same one twice."
+  say "Type the code showing now, wait for it to roll over, then type the next one."
+  for attempt in 1 2 3; do
+    printf '\n  code 1               : '; read -r C1
+    printf '  code 2 (after it rolls): '; read -r C2
+    if aws iam enable-mfa-device --user-name "$BASE_USER" --serial-number "$MFA_SERIAL" \
+         --authentication-code1 "$C1" --authentication-code2 "$C2" 2>/dev/null; then
+      unset C1 C2
+      say "MFA enabled on $BASE_USER"
+      break
+    fi
+    unset C1 C2
+    if [ "$attempt" = 3 ]; then
+      die "The codes were rejected three times. Check that the entry in your app is named '$MFA_NAME' and that the two codes are consecutive."
+    fi
+    say "rejected; the codes must be current and consecutive. Try again."
+  done
 fi
 
 # ======================================================== 3. role

@@ -479,6 +479,10 @@ make retire-user RETIRE_USER=terraform-admin
 
 **分からなければ `n` を選ぶこと。** 使えないデバイスを消して作り直すだけで、副作用はない。
 
+有効化には **連続する 2 つのコード**が要る。いま表示されているコードを 1 つ目に入れ、
+**表示が切り替わるのを待って**次のコードを 2 つ目に入れる。同じコードを 2 回入れると拒否される。
+入力ミスは 3 回まで再試行できる。
+
 変数で上書きできる: `BASE_USER` `ADMIN_ROLE` `PROFILE` `SRC_PROFILE` `REGION` `MFA_NAME`。
 `REGION` は IAM が global のため表示上の意味しかない。Terraform は
 `var.results_bucket_region` で自分のリージョンを固定する。
