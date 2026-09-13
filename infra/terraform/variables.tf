@@ -19,6 +19,18 @@ variable "results_bucket_name" {
   type        = string
 }
 
+variable "simulator_region" {
+  description = "Region for SV1/DM1. They are absent from eu-north-1, so simulator tasks and their result bucket live elsewhere."
+  type        = string
+  default     = "eu-west-2"
+}
+
+variable "simulator_bucket_name" {
+  description = "Results bucket for simulator tasks, created in simulator_region. Braket writes results to a bucket in the region the task was submitted to."
+  type        = string
+  default     = null
+}
+
 variable "results_transition_days" {
   description = "Days before raw results move to Glacier. Used in Phase 3."
   type        = number

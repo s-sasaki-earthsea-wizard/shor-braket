@@ -45,10 +45,29 @@ aws braket get-device --device-arn <arn> --region <region>
 
 ### シミュレータ
 
-| 論理名 | デバイス | qubit | 価格 | ショット範囲 |
-|---|---|---|---|---|
-| `sv1` | Amazon SV1（状態ベクトル） | 34 | $0.075/分 | 0–100,000 |
-| `dm1` | Amazon DM1（密度行列・ノイズ可） | 17 | $0.075/分 | 0–100,000 |
+| 論理名 | デバイス | qubit | 価格 | ショット範囲 | リージョン |
+|---|---|---|---|---|---|
+| `sv1` | Amazon SV1（状態ベクトル） | 34 | $0.075/分 | 0–100,000 | eu-west-2, us-east-1, us-west-1, us-west-2 |
+| `dm1` | Amazon DM1（密度行列・ノイズ可） | 17 | $0.075/分 | 0–100,000 | eu-west-2, us-east-1, us-west-1, us-west-2 |
+
+> ⚠️ **SV1 / DM1 は eu-north-1 に存在しない**（2026-09-13 実測）。
+> eu-north-1 にあるのは QPU 3 機（IQM Garnet / Emerald、AQT IBEX Q1）のみ。
+> Braket はタスクを投入したリージョンの S3 バケットに結果を書くため、
+> **QPU 用（eu-north-1）とシミュレータ用のバケットが 2 つ必要**になる。
+> シミュレータ側は **eu-west-2（ロンドン）** を採る。EU 内で eu-north-1 に最も近く、
+> 結果データが EU を出ない。
+
+### リージョンの分布（2026-09-13 実測）
+
+| リージョン | ONLINE のデバイス |
+|---|---|
+| `eu-north-1` | AQT IBEX Q1、IQM Garnet、IQM Emerald（**シミュレータなし**） |
+| `eu-west-2` | SV1、DM1 のみ |
+| `us-east-1` | SV1、DM1、QuEra Aquila、IonQ Forte Enterprise 1 |
+| `us-west-1` | Rigetti Cepheus-1-108Q、SV1、DM1 |
+
+**本プロジェクトの選択**: QPU は `eu-north-1`（採用した 3 機が全てここにある）、
+シミュレータは `eu-west-2`。S3 バケットは両リージョンに 1 つずつ置く。
 
 ### 対象外
 

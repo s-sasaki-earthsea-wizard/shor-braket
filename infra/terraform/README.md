@@ -9,7 +9,7 @@ AWS リソース定義。**IAM プリンシパルは実装済み（2026-09-13）
 | リソース | 目的 | 状態 |
 |---|---|---|
 | IAM ユーザー `shor-braket-monitor` / `shor-braket-operator`、ロール `ShorBraketExecutionRole`、customer-managed ポリシー 4 本 | Braket 実行と監視の権限分離（[`../iam/README.md`](../iam/README.md)） | ✅ `iam.tf` |
-| S3 バケット (`amazon-braket-*`) + ライフサイクル | Braket タスクの結果保存、一定期間後に Glacier へ | ⬜ Phase 3 |
+| S3 バケット (`amazon-braket-*`) + ライフサイクル | Braket タスクの結果保存、一定期間後に Glacier へ。**eu-north-1（QPU）と eu-west-2（SV1/DM1）に 1 つずつ** | ⬜ Phase 3 |
 | SNS トピック + AWS Budgets | **月次予算 100 USD**、50/80/100% + 予測 100% で通知 | ⬜ Phase 3 |
 | CloudWatch ロググループ | 実行ログ | ⬜ Phase 3 |
 
@@ -81,9 +81,19 @@ infra/terraform/
 
 ### リージョンが分かれる
 
-Braket の QPU は機種ごとに利用可能リージョンが異なる。S3 バケットはデバイスと同じリージョンに要るため、
-**主に使う QPU のリージョン（IQM / AQT なら eu-north-1）に寄せる**。別リージョンの QPU を足すなら
-provider の `alias` でバケットを増やす構成にする。
+Braket はタスクを投入したリージョンの S3 バケットに結果を書く。2026-09-13 実測のデバイス分布:
+
+| リージョン | ONLINE のデバイス |
+|---|---|
+| `eu-north-1` | AQT IBEX Q1、IQM Garnet、IQM Emerald（**シミュレータなし**） |
+| `eu-west-2` | SV1、DM1 のみ |
+| `us-east-1` | SV1、DM1、QuEra Aquila、IonQ Forte Enterprise 1 |
+| `us-west-1` | Rigetti Cepheus-1-108Q、SV1、DM1 |
+
+採用した QPU 3 機はすべて `eu-north-1` にあるが、**SV1 / DM1 はそこにない**。
+したがってバケットは 2 つ要る（`var.results_bucket_name` @ `eu-north-1`、
+`var.simulator_bucket_name` @ `var.simulator_region` = `eu-west-2`）。
+provider の `alias` で 2 リージョンを扱う。別リージョンの QPU を足す場合も同じ方式で増やす。
 
 ### IAM でショット数は制限できない
 
