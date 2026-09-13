@@ -53,12 +53,21 @@ say "admin profile : $ADMIN_PROFILE"
 say "region        : $REGION"
 say "MFA           : $([ "$WANT_MFA" = 1 ] && echo "register" || echo "skip")"
 
-if grep -qE "^\[$PROFILE\]" "$CREDS_FILE" 2>/dev/null; then
-  die "profile [$PROFILE] already exists in $CREDS_FILE. Remove it first, or pick another name."
-fi
-
+# The key step and the MFA step are independent, so an interrupted run can be
+# resumed: whatever already exists is skipped rather than treated as an error.
+have_profile=0
+grep -qE "^\[$PROFILE\]" "$CREDS_FILE" 2>/dev/null && have_profile=1
 existing="$(aws iam list-access-keys --user-name "$IAM_USER" --query 'AccessKeyMetadata[].AccessKeyId' --output text)"
-if [ -n "$existing" ]; then
+
+need_key=1
+if [ "$have_profile" = 1 ] && [ -n "$existing" ]; then
+  need_key=0
+  say ""
+  say "profile [$PROFILE] and a key for $IAM_USER both exist; skipping the key step"
+elif [ "$have_profile" = 1 ]; then
+  die "profile [$PROFILE] exists in $CREDS_FILE but $IAM_USER has no access key.
+  The profile holds a stale or foreign key. Remove that block, then re-run."
+elif [ -n "$existing" ]; then
   say ""
   say "This user already has a key: $(printf '%s' "$existing" | redact)"
   say "IAM allows two per user; a third request fails."
@@ -67,11 +76,19 @@ if [ -n "$existing" ]; then
   case "$ans" in y|Y) ;; *) printf '\n  Aborted.\n\n'; exit 1 ;; esac
 fi
 
+if [ "$need_key" = 0 ] && [ "$WANT_MFA" = 0 ]; then
+  printf '\n  Nothing to do. Pass --mfa (make issue-creds ... MFA=1) to register a device.\n\n'
+  exit 0
+fi
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 umask 077
 
 head_ "1. Access key"
+if [ "$need_key" = 0 ]; then
+  say "already issued, skipping"
+else
 aws iam create-access-key --user-name "$IAM_USER" > "$WORK/key.json"
 CREDS_FILE="$CREDS_FILE" PROFILE="$PROFILE" python3 - "$WORK/key.json" <<'PY'
 import json, os, pathlib, sys
@@ -94,6 +111,7 @@ print(f"  wrote [{profile}] to {path} (mode 600)")
 PY
 aws configure set region "$REGION" --profile "$PROFILE"
 say "secret never passed through argv or shell history"
+fi
 
 if [ "$WANT_MFA" = 1 ]; then
   head_ "2. MFA device"
