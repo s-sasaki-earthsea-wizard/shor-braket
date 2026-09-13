@@ -1,45 +1,60 @@
 # infra/terraform
 
-AWS リソース定義。**Phase 3 で実装予定。現時点では空。**
+AWS リソース定義。**IAM プリンシパルは実装済み（2026-09-13）。S3 / Budgets / SNS / CloudWatch は Phase 3 で追加する。**
 
 ---
 
 ## 管理するリソース
 
-| リソース | 目的 |
-|---|---|
-| S3 バケット (`amazon-braket-*`) | Braket タスクの結果保存 |
-| S3 ライフサイクルポリシー | 一定期間後に Glacier へ移行 / 削除 |
-| IAM ユーザー / ポリシー | Braket 実行用。**高額デバイスを Deny で拒否**（[`../iam/`](../iam/)） |
-| SNS トピック | コスト警告の通知先 |
-| AWS Budgets | **月次予算 100 USD** + SNS 通知（50/80/100% + 予測 100%） |
-| CloudWatch ロググループ | 実行ログ |
+| リソース | 目的 | 状態 |
+|---|---|---|
+| IAM ユーザー `shor-braket-monitor` / `shor-braket-operator`、ロール `ShorBraketExecutionRole`、customer-managed ポリシー 4 本 | Braket 実行と監視の権限分離（[`../iam/README.md`](../iam/README.md)） | ✅ `iam.tf` |
+| S3 バケット (`amazon-braket-*`) + ライフサイクル | Braket タスクの結果保存、一定期間後に Glacier へ | ⬜ Phase 3 |
+| SNS トピック + AWS Budgets | **月次予算 100 USD**、50/80/100% + 予測 100% で通知 | ⬜ Phase 3 |
+| CloudWatch ロググループ | 実行ログ | ⬜ Phase 3 |
 
-ポリシー JSON は [`infra/iam/`](../iam/) に置き、Terraform からは
-`file("${path.module}/../iam/shor-braket-run-policy.json")` で読み込んで二重管理を避ける。
-プレースホルダは `templatefile()` で埋める。
+ポリシー JSON は [`../iam/`](../iam/) が唯一の定義。`iam.tf` は `file()` で読み込み、
+`<AWS_ACCOUNT_ID>` と `<RESULTS_BUCKET>` を `replace()` で埋める（`make iam-render` の sed と同じ置換）。
+デバイスの拒否リストや AQT のタグゲートは JSON 側にあり、Terraform の変数にはしない。
 
 ## 管理しないもの
 
-- **量子タスク** — 使い捨ての実行単位であり、Terraform の状態管理対象として不適切。
-  SDK から投入し、結果は S3 に落とす
-- **Braket サービスの有効化** — コンソールでの利用規約同意が必要で Terraform 不可。
-  手動手順として記録する
+- **量子タスク** — 使い捨ての実行単位であり、Terraform の状態管理対象として不適切。SDK から投入し、結果は S3 に落とす
+- **管理者プリンシパル**（`admin-base` / `AdminRole`） — Terraform 自身がこれで動くため。手順は `../iam/README.md` §11
+- **アクセスキー** — state に平文で残るため。`admin` プロファイルで `aws iam create-access-key` を叩く
+- **MFA デバイス** — 本人が登録する
+- **Braket サービスの有効化、請求情報への IAM アクセス、コスト配分タグ** — アカウント設定。`../iam/README.md` §9–§10
 
 ---
 
-## 想定ファイル構成
+## 使い方
+
+前提: `../iam/README.md` §11 の bootstrap が済んでいて、`.env` に `AWS_PROFILE_ADMIN` がある。
+
+```bash
+cp terraform.tfvars.example terraform.tfvars   # 値を埋める。gitignore 対象
+make tf-init
+make tf-plan        # AWS_PROFILE_ADMIN で実行。MFA コードを聞かれる。root なら拒否される
+make tf-apply
+terraform -chdir=infra/terraform output -raw aws_config_snippet   # ~/.aws/config に貼る内容
+```
+
+`tfvars` の `aws_account_id` を設定しておくと、別アカウントのプロファイルで apply しようとしたときに
+`precondition` が作成前に止める。ロール名やユーザー名を変える場合も、JSON 側の参照とずれていれば同様に止まる。
+
+---
+
+## ファイル構成
 
 ```
 infra/terraform/
-├── versions.tf          # required_version / required_providers
-├── providers.tf         # aws provider (複数リージョン: alias)
-├── variables.tf
+├── versions.tf              # required_version >= 1.5 / aws ~> 5.0。backend なし
+├── providers.tf             # region は var.results_bucket_region。default_tags
+├── variables.tf             # Phase 3 用の変数も宣言済み（budget / S3）
+├── iam.tf                   # ../iam/*.json を読み込んでプリンシパルと attachment を作る
+├── outputs.tf               # ロール ARN、MFA serial、~/.aws/config の雛形（sensitive）
 ├── terraform.tfvars.example
-├── s3.tf                # 結果保存バケット + ライフサイクル
-├── iam.tf               # Braket 実行ロール / ポリシー
-├── budget.tf            # AWS Budgets + SNS
-└── outputs.tf
+└── (Phase 3) s3.tf / budget.tf / logs.tf
 ```
 
 `backend.tf` は置かない。**ステートはローカル管理**（決定事項、下記参照）。
@@ -53,30 +68,26 @@ infra/terraform/
 `terraform.tfstate` をローカルに置く。S3 + DynamoDB のリモートステートは採用しない。
 
 - 単独開発でロック競合が起きない
-- 管理対象が S3 / IAM / Budgets / SNS のみで、再作成コストが低い
+- 管理対象が IAM / S3 / Budgets / SNS のみで、再作成コストが低い
 - リモートステート用のバックエンド自体を作る手間（鶏と卵）を避けられる
 
 **代償**: `terraform.tfstate` は `.gitignore` 対象なので、失うと `terraform import` が必要になる。
 ステートファイルは Time Machine などのローカルバックアップ対象に含めておくこと。
-また **ステートには IAM ポリシー本文などが平文で入る**ため、誤ってコミットしないよう注意する
-（`.gitignore` に `*.tfstate` / `*.tfstate.*` を設定済み）。
+また **ステートには IAM ポリシー本文やアカウント ID が平文で入る**ため、誤ってコミットしないよう注意する
+（`.gitignore` に `*.tfstate` / `*.tfstate.*` / `tfplan` を設定済み）。
 
 複数人で触るようになったら S3 バックエンドに移行する。その時点で
 `terraform init -migrate-state` で移行できる。
 
 ### リージョンが分かれる
 
-Braket の QPU は機種ごとに利用可能リージョンが異なる（IQM は eu-north-1、
-IonQ は us-east-1、Rigetti は us-west-1 など）。一方 S3 バケットは 1 リージョンに置く。
-
-**クロスリージョンのデータ転送料金が発生する可能性がある**ため、
-主に使う QPU のリージョンに S3 を寄せるか、リージョンごとにバケットを作るかを決める必要がある。
-provider の `alias` を使って複数リージョンを扱う構成にする。
+Braket の QPU は機種ごとに利用可能リージョンが異なる。S3 バケットはデバイスと同じリージョンに要るため、
+**主に使う QPU のリージョン（IQM / AQT なら eu-north-1）に寄せる**。別リージョンの QPU を足すなら
+provider の `alias` でバケットを増やす構成にする。
 
 ### IAM でショット数は制限できない
 
 Braket の IAM にはショット数を制限する条件キーが存在しない。
-`braket:CreateQuantumTask` の Resource でデバイスを限定することはできるが、
 **「1000 ショットまで」のような制限は IAM では表現できない**。
 コスト暴走はクライアント側のチェックと AWS Budgets でしか止められない。
 
@@ -90,10 +101,9 @@ AWS 管理ポリシー `AmazonBraketFullAccess` は `amazon-braket-*` プレフ�
 
 ## 未決事項
 
-- [ ] ステート管理: ローカル state か、S3 + DynamoDB のリモート state か
-      （個人プロジェクトの規模ではローカルでも可。ただし多環境に広げるならリモート）
-- [ ] 月次予算の閾値
-- [ ] IAM は role にするか user にするか（ローカルからの実行が主なら
-      IAM Identity Center / SSO + assume role が望ましい）
-- [ ] S3 のリージョンをどこに置くか（QPU 選定の確定待ち）
-- [ ] ライフサイクルポリシーの期間
+- [x] ~~ステート管理~~ → ローカル（ADR-0002）
+- [x] ~~月次予算の閾値~~ → 100 USD（ADR-0002）
+- [x] ~~IAM は role にするか user にするか~~ → ユーザー + MFA 必須の assume role（ADR-0002 改訂）
+- [x] ~~S3 のリージョン~~ → eu-north-1（Wiki「デバイス比較」）
+- [ ] ライフサイクルポリシーの期間（`results_transition_days` の既定は 90 日）
+- [ ] `.terraform.lock.hcl` を gitignore から外してコミットするか（provider のハッシュを固定できる）

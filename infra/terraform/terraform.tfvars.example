@@ -6,6 +6,7 @@
 # 対応する変数定義は variables.tf (Phase 3 で作成)。
 
 # ---- アカウント / リージョン ----
+# 任意。設定すると、別アカウントのプロファイルで apply しようとしたときに作成前に失敗する
 aws_account_id = "000000000000"
 
 # 結果保存用 S3 バケットを置くリージョン。
@@ -26,23 +27,11 @@ operator_user_name = "shor-braket-operator"
 # 監視ユーザー。読み取りのみで assume 権限を持たない
 monitor_user_name = "shor-braket-monitor"
 
-# CreateQuantumTask を無条件で拒否するデバイス ARN パターン (1 タスクで予算超過しうる機種)。
-# 根拠は infra/iam/README.md §6 を参照
-denied_device_arns = [
-  "arn:aws:braket:*:*:device/qpu/ionq/*",
-  "arn:aws:braket:*:*:device/qpu/quera/*",
-  "arn:aws:braket:*:*:device/qpu/xanadu/*",
-  "arn:aws:braket:*:*:device/qpu/oqc/*",
-  "arn:aws:braket:*:*:device/qpu/pasqal/*",
-]
+# 実行ロール名。変えるなら infra/iam/*.json 内の参照も合わせる (plan 時に precondition が検出する)
+# execution_role_name = "ShorBraketExecutionRole"
 
-# リクエストタグ campaign_tag_key = campaign_tag_value が付いた投入だけ許可するデバイス。
-# タグなし・別の値は拒否される (infra/iam/README.md §6.1)
-campaign_gated_device_arns = [
-  "arn:aws:braket:*:*:device/qpu/aqt/*",
-]
-campaign_tag_key   = "campaign"
-campaign_tag_value = "device-comparison"
+# デバイスの拒否リストと AQT のタグゲートは infra/iam/shor-braket-guardrail-policy.json が
+# 唯一の定義。Terraform はその JSON をそのまま読み込む (二重管理しない)
 
 # ---- コスト ----
 monthly_budget_usd = 100

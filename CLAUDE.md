@@ -111,7 +111,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## AWS
 
-- **root アカウントのアクセスキーを使わない。**
+- **root アカウントのアクセスキーを使わない。** 2026-09-13 時点で `default` プロファイルが root キーだったため、
+  `infra/iam/README.md` §11 の bootstrap（MFA 必須の `AdminRole` + root キー削除）を先に行う
+- **Terraform は `AWS_PROFILE_ADMIN`（MFA 必須の assume role）で実行する。** `make tf-plan` / `tf-apply` は
+  呼び出し元が root なら拒否する。管理者プリンシパル・アクセスキー・MFA デバイスは Terraform に入れない
+- **IAM プリンシパルは Terraform で作る**（`infra/terraform/iam.tf`）。ポリシー本文は `infra/iam/*.json` が唯一の定義で、
+  Terraform は `file()` + `replace()` で読み込む。名前の不整合は `precondition` が plan 時に止める
 - **IAM プリンシパルを 3 つに分ける**（`infra/iam/README.md`）
   - `shor-braket-monitor` — 監視専用ユーザー。閲覧のみで assume の Allow を持たない
   - `shor-braket-operator` — 操作者ユーザー。読み取り + 実行ロールへの assume
@@ -157,6 +162,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ⬜ |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ⬜ |
-| 3 | Terraform による AWS リソース定義 | 低 | ⬜ |
+| 3 | Terraform による AWS リソース定義 | 低 | 🔶 IAM のみ実装 2026-09-13。S3 / Budgets / SNS / Logs は未着手 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |

@@ -8,6 +8,19 @@ ACCOUNT_ID ?= $(AWS_ACCOUNT_ID)
 BUCKET     ?= $(BRAKET_RESULTS_BUCKET)
 PRINCIPAL  ?= $(IAM_PRINCIPAL)
 MONITOR_PRINCIPAL ?= $(IAM_MONITOR_PRINCIPAL)
+# Terraform runs under the MFA-backed admin profile. Never root.
+TF_PROFILE ?= $(AWS_PROFILE_ADMIN)
+
+# Refuse to run Terraform with root credentials, whatever the profile is called.
+define refuse_root
+	@arn=$$(AWS_PROFILE=$(TF_PROFILE) aws sts get-caller-identity --query Arn --output text 2>/dev/null); \
+	case "$$arn" in \
+		*:root) echo ""; echo "  $(TF_PROFILE) resolves to the root account. Refusing."; \
+		        echo "  infra/iam/README.md §11 に従って管理者ロールを作り、AWS_PROFILE_ADMIN を差し替えること。"; echo ""; exit 1 ;; \
+		"")     echo ""; echo "  Cannot resolve caller identity for profile $(TF_PROFILE)."; echo ""; exit 1 ;; \
+		*)      echo "  caller: $$arn" ;; \
+	esac
+endef
 
 define require_env
 	@test -n "$($(1))" || { \
@@ -118,20 +131,27 @@ tf-fmt:  ## Terraform のコードを整形する
 
 .PHONY: tf-init
 tf-init:  ## Terraform を初期化する
-	terraform -chdir=$(TF_DIR) init
+	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-init)
+	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) init
 
 .PHONY: tf-validate
 tf-validate:  ## Terraform の構文を検証する
 	terraform -chdir=$(TF_DIR) validate
 
 .PHONY: tf-plan
-tf-plan:  ## Terraform の変更計画を表示する
-	terraform -chdir=$(TF_DIR) plan -out=tfplan
+tf-plan:  ## Terraform の変更計画を表示する (AWS_PROFILE_ADMIN を使う。root は拒否)
+	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-plan)
+	$(refuse_root)
+	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) plan -out=tfplan
 
 .PHONY: tf-apply
-tf-apply:  ## Terraform の変更を適用する (tf-plan の出力を使う)
-	terraform -chdir=$(TF_DIR) apply tfplan
+tf-apply:  ## Terraform の変更を適用する (tf-plan の出力を使う。AWS_PROFILE_ADMIN)
+	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-apply)
+	$(refuse_root)
+	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) apply tfplan
 
 .PHONY: tf-destroy
 tf-destroy:  ## Terraform で作成したリソースを破棄する (⚠️ S3 の結果も消える)
-	terraform -chdir=$(TF_DIR) destroy
+	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-destroy)
+	$(refuse_root)
+	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) destroy

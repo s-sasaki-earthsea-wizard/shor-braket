@@ -386,3 +386,119 @@ Braket はアカウントごとにコンソールでの有効化（利用規約�
 | **コスト配分タグ `project` と `campaign` の有効化** | Billing コンソールの「コスト配分タグ」。有効化しないと Cost Explorer でタグ別に絞れない。有効化後のデータにしか効かないので、最初の投入より前に行う |
 
 monitor ユーザーには MFA を必須にしていないが、コンソールを使うなら登録を推奨する。
+
+---
+
+## 11. アカウントの bootstrap（一度きり・Terraform 外）: root キーの廃止と管理者の MFA 化
+
+**2026-09-13 時点で、CLI の `default` プロファイルは root アカウントのアクセスキーだった。**
+root の MFA はコンソールのサインインにしか効かず、アクセスキーは守れない。
+本節の手順で **MFA 必須で assume する管理者ロール** に置き換え、root キーを削除する。
+
+管理者は「IAM を作る側」なのでプロジェクトの Terraform には入れない（Terraform 自体が管理者権限で動くため、
+鶏と卵になる。`terraform destroy` で管理者を消してしまう事故も避けたい）。
+代わりに手順をここに記録し、値はリポジトリに書かない。
+
+### 11.1 目標の形
+
+```
+IAM User: admin-base            長期キー。権限は sts:AssumeRole だけ。MFA デバイスを登録
+  │  sts:AssumeRole (MFA 必須, 1 時間)
+  ▼
+IAM Role: AdminRole             AdministratorAccess
+```
+
+`~/.aws/config` のプロファイル `admin` が role を assume する。`make tf-*` はこれを `AWS_PROFILE_ADMIN` として使い、
+呼び出し元が root なら拒否する。漏れた長期キーだけでは何もできず、MFA デバイスが要る。
+
+### 11.2 手順（root キーで実行する最後の作業）
+
+各ステップは冪等ではない。途中で失敗したら、その資源の有無を `aws iam get-*` で確認してから続ける。
+値はすべて `aws sts get-caller-identity` から取り、手で打たない。
+
+```bash
+set -euo pipefail
+ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+ADMIN_USER=admin-base
+ADMIN_ROLE=AdminRole
+REGION=eu-north-1
+
+# 1. 管理者ユーザーと長期キー。秘密鍵は画面に出さず credentials ファイルへ直接書く
+aws iam create-user --user-name "$ADMIN_USER"
+read -r AKID SECRET < <(aws iam create-access-key --user-name "$ADMIN_USER" \
+  --query 'AccessKey.[AccessKeyId,SecretAccessKey]' --output text)
+aws configure set aws_access_key_id     "$AKID"   --profile admin-base
+aws configure set aws_secret_access_key "$SECRET" --profile admin-base
+aws configure set region "$REGION" --profile admin-base
+unset AKID SECRET
+
+# 2. 仮想 MFA デバイス。QR の PNG にはシードが入っているので読み取ったら消す
+aws iam create-virtual-mfa-device --virtual-mfa-device-name "$ADMIN_USER" \
+  --outfile "$HOME/admin-mfa-qr.png" --bootstrap-method QRCodePNG
+open "$HOME/admin-mfa-qr.png"          # 認証アプリで読み取る
+read -r -p "code1: " C1; read -r -p "code2: " C2    # 連続する 2 つのコード
+aws iam enable-mfa-device --user-name "$ADMIN_USER" \
+  --serial-number "arn:aws:iam::${ACCOUNT_ID}:mfa/${ADMIN_USER}" \
+  --authentication-code1 "$C1" --authentication-code2 "$C2"
+rm -P "$HOME/admin-mfa-qr.png"; unset C1 C2
+
+# 3. 管理者ロール。信頼ポリシーで MFA を必須にし、1 時間で失効させる
+cat > /tmp/admin-trust.json <<EOF
+{ "Version": "2012-10-17", "Statement": [ {
+  "Effect": "Allow",
+  "Principal": { "AWS": "arn:aws:iam::${ACCOUNT_ID}:user/${ADMIN_USER}" },
+  "Action": "sts:AssumeRole",
+  "Condition": {
+    "Bool": { "aws:MultiFactorAuthPresent": "true" },
+    "NumericLessThan": { "aws:MultiFactorAuthAge": "3600" } } } ] }
+EOF
+aws iam create-role --role-name "$ADMIN_ROLE" \
+  --assume-role-policy-document file:///tmp/admin-trust.json --max-session-duration 3600
+aws iam attach-role-policy --role-name "$ADMIN_ROLE" \
+  --policy-arn arn:aws:iam::aws:policy/AdministratorAccess
+
+# 4. 管理者ユーザーには AssumeRole だけを許可する
+cat > /tmp/admin-assume.json <<EOF
+{ "Version": "2012-10-17", "Statement": [ {
+  "Effect": "Allow", "Action": "sts:AssumeRole",
+  "Resource": "arn:aws:iam::${ACCOUNT_ID}:role/${ADMIN_ROLE}" } ] }
+EOF
+aws iam put-user-policy --user-name "$ADMIN_USER" --policy-name AssumeAdminRole \
+  --policy-document file:///tmp/admin-assume.json
+rm /tmp/admin-trust.json /tmp/admin-assume.json
+
+# 5. assume 用プロファイル
+aws configure set source_profile   admin-base --profile admin
+aws configure set role_arn         "arn:aws:iam::${ACCOUNT_ID}:role/${ADMIN_ROLE}" --profile admin
+aws configure set mfa_serial       "arn:aws:iam::${ACCOUNT_ID}:mfa/${ADMIN_USER}" --profile admin
+aws configure set duration_seconds 3600 --profile admin
+aws configure set region           "$REGION" --profile admin
+
+# 6. 検証。MFA コードを聞かれ、assumed-role/AdminRole の ARN が返れば成功。
+#    IAM の反映に数十秒かかることがあるので、失敗したら少し待って再試行
+aws sts get-caller-identity --profile admin
+```
+
+### 11.3 root キーの削除（6 が通ってから）
+
+```bash
+# root として実行すると root 自身のキー一覧が返る
+ROOT_KEY=$(aws iam list-access-keys --query 'AccessKeyMetadata[0].AccessKeyId' --output text)
+aws iam delete-access-key --access-key-id "$ROOT_KEY"
+```
+
+続けて手作業で:
+
+1. `~/.aws/credentials` と `~/.aws/config` から `[default]` を削除する。**暗黙のプロファイルを残さない。**
+   以後 `--profile` なしのコマンドは失敗するが、それが狙い
+2. root にハードウェアまたは仮想 MFA を登録する（コンソール）。root は break-glass 用にのみ残す
+3. `.env` の `AWS_PROFILE_ADMIN=admin` を確認する
+
+### 11.4 以後の運用
+
+| 操作 | プロファイル |
+|---|---|
+| `make tf-plan` / `tf-apply` | `admin`（MFA を聞かれる） |
+| operator / monitor のアクセスキー発行 | `admin` で `aws iam create-access-key`。Terraform には入れない（state に平文で残るため） |
+| operator の MFA 登録 | operator 本人が §11.2 の手順 2 と同じ流れで行う |
+| 日常の読み取り・投入 | `shor-braket-ro` / `shor-braket-exec`（§1） |

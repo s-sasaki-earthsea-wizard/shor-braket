@@ -1,0 +1,79 @@
+# ---- Safety ----
+
+variable "aws_account_id" {
+  description = "Expected account ID. When set, applying under any other account fails before creating anything."
+  type        = string
+  default     = null
+}
+
+# ---- Region / S3 (bucket itself is created in Phase 3) ----
+
+variable "results_bucket_region" {
+  description = "Region for the results bucket and the provider. Keep it on the primary QPU region."
+  type        = string
+  default     = "eu-north-1"
+}
+
+variable "results_bucket_name" {
+  description = "Results bucket name referenced by the IAM policies. Prefer the amazon-braket- prefix."
+  type        = string
+}
+
+variable "results_transition_days" {
+  description = "Days before raw results move to Glacier. Used in Phase 3."
+  type        = number
+  default     = 90
+}
+
+# ---- IAM principals ----
+
+variable "operator_user_name" {
+  description = "Operator user: read-only plus assume into the execution role. Registers an MFA device."
+  type        = string
+  default     = "shor-braket-operator"
+}
+
+variable "monitor_user_name" {
+  description = "Monitor user: read-only, no assume. Cannot execute regardless of MFA."
+  type        = string
+  default     = "shor-braket-monitor"
+}
+
+variable "execution_role_name" {
+  description = "Role that may create quantum tasks. Assumed by the operator with MFA."
+  type        = string
+  default     = "ShorBraketExecutionRole"
+}
+
+# ---- Budget / alerts (used in Phase 3) ----
+
+variable "monthly_budget_usd" {
+  description = "Monthly budget in USD for AWS Budgets."
+  type        = number
+  default     = 100
+}
+
+variable "budget_notification_email" {
+  description = "Email that receives budget alerts via SNS."
+  type        = string
+  sensitive   = true
+  default     = null
+}
+
+variable "budget_alert_thresholds" {
+  description = "Actual-spend thresholds (percent) that trigger an alert."
+  type        = list(number)
+  default     = [50, 80, 100]
+}
+
+# ---- Tags ----
+
+variable "tags" {
+  description = "Tags applied to every resource through provider default_tags."
+  type        = map(string)
+  default = {
+    Project      = "shor-braket"
+    ManagedBy    = "terraform"
+    AmazonBraket = "true"
+  }
+}

@@ -15,7 +15,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（古典前処理 + 位数発見回路）** | **高** | ⬜ 未着手 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ⬜ 未着手 |
-| Phase 3 | Terraform による AWS リソース定義 | 低 | ⬜ 未着手 |
+| Phase 3 | Terraform による AWS リソース定義 | 低 | 🔶 IAM のみ実装（2026-09-13） |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
@@ -139,7 +139,7 @@ shor-braket/
 
 ```bash
 make setup     # 依存関係のインストール
-make sim N=6   # ローカルシミュレータ（無料・認証不要）
+make sim N=15  # ローカルシミュレータ（無料・認証不要）
 ```
 
 ローカルシミュレータは AWS へのリクエストを一切発生させない。**ここまでは認証設定不要。**
@@ -150,6 +150,10 @@ make sim N=6   # ローカルシミュレータ（無料・認証不要）
 cp .env.example .env      # アカウント ID・バケット名・予算などはすべてここ
 $EDITOR .env
 ```
+
+**root のアクセスキーで作業しない。** 最初に [`infra/iam/README.md`](infra/iam/README.md) §11 の手順で
+MFA 必須の管理者ロールを作り、root キーを削除する。`make tf-plan` / `tf-apply` は `AWS_PROFILE_ADMIN` で動き、
+呼び出し元が root なら拒否する。IAM プリンシパルは Terraform で作る（[`infra/terraform/`](infra/terraform/)）。
 
 `.env` を作れば `make` が自動で読み込む。`make help` の末尾で読み込み状態を確認できる。
 
