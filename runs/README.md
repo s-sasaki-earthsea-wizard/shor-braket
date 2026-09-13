@@ -9,3 +9,9 @@
 
 行列参照回路のレポートは `execution.class = local-reference`、
 `circuit.qpu_eligible = false` となる。このレポートを QPU 投入許可には使用しない。
+
+`make emulate DEVICE=<garnet|emerald|ibex>` は `raw/emulator-<device>-<timestamp>-<hash>/result.json` を
+作る。`execution.class = local-emulator` で、verbatim 検証の結果、校正ノイズ付きの測定分布、深さスイープ、
+参照したスナップショットの `capabilities_sha256` を含む。`make emulate-all` は加えて
+`raw/emulator-comparison-<timestamp>/` に 3 機の比較図と `report.md` を書く。どちらも validated レコードを
+発行しない。

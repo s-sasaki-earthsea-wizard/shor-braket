@@ -1,4 +1,4 @@
-# Local simulator — 無料。AWS へのリクエストは発生しない
+# Local simulator / emulator — 無料。AWS へのリクエストは発生しない
 
 .PHONY: sim-smoke
 sim-smoke:  ## Bell 状態の回路で Docker のローカルシミュレータを動作確認する
@@ -13,6 +13,14 @@ sim:  ## Shor の位数発見を実行し、SVG/PNG/HTML の教材を生成す�
 sim-all:  ## N=15 (主テストケース) と N=6 (縮退ケース) の両方をローカル検証する (回帰用)
 	$(MAKE) sim N=15 A=7 T=8 SHOTS="$(SHOTS)"
 	$(MAKE) sim N=6 A=5 T=1 SHOTS="$(SHOTS)"
+
+.PHONY: emulate
+emulate:  ## 校正スナップショットから LocalEmulator を組み、ネイティブ回路を検証・実行する (無料・オフライン。例: make emulate DEVICE=garnet)
+	$(LOCAL_RUN) shor-braket emulate --device "$(DEVICE)" --shots "$(SHOTS)"
+
+.PHONY: emulate-all
+emulate-all:  ## 3 機すべてで emulate を実行し、比較図と report.md を生成する
+	$(LOCAL_RUN) shor-braket emulate --device all --shots "$(SHOTS)"
 
 .PHONY: qpu-costs
 qpu-costs:  ## 将来の QPU 候補 3 機について指定 shots の 1 task 概算を表示する

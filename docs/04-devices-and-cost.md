@@ -136,6 +136,11 @@ t を増やしても qubit 数が増えない。逆 QFT のマルチ制御位相
 トランスパイル後の 2 qubit ゲート数 60 なら $0.99^{60} \approx 0.55$。
 **t を小さく取ることが実機での成否を分ける。**
 
+**1 qubit ゲートの忠実度も同じくらい効く。** IQM のネイティブ分解では CNOT 1 個に `prx` が 4 枚入るため、
+2 qubit 忠実度が最良のカプラでも参加 qubit の 1 qubit RB が悪ければ劣化が速い（Emerald 28-36 は 2 qubit
+0.9989 だが qubit 36 の 1 qubit RB が 0.9969 で、Garnet の最良カプラより速く崩れた。2026-09-14 の
+LocalEmulator 実測、Wiki「LocalEmulator で実機の手前まで」）。qubit 選択は 2 qubit 忠実度だけで決めない。
+
 校正値は実行時に取得できる:
 
 ```python
@@ -175,6 +180,10 @@ QPU互換回路には **LocalEmulatorを必ず挟む**。対象機へ変換し�
 
 LocalSimulator / LocalEmulator はDocker内で動くためBraket利用料は発生しない。SV1 / DM1はAWS上の
 タスクなので、実行前にeu-west-2の結果用S3、IAM、Braket有効化をTerraformと手動手順で用意する。
+
+校正データは `make device-snapshot`（読み取りプロファイルで `GetDevice` のみ・課金なし）で
+`devices/snapshots/` に保存し、`make emulate-all` がオフラインで 3 機を比較する。段階 2 は
+2026-09-14 に 3 機とも通ることを確認済み（Wiki「LocalEmulator で実機の手前まで」）。
 
 ---
 
