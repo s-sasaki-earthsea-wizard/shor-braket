@@ -66,6 +66,7 @@ OpenQASM 3 のテキストを直接ハッシュしない。理由:
   "circuit_hash": "sha256:...",
   "problem": { "N": 6, "a": 5, "t": 2, "n_work": 3 },
   "oracle_mode": "generic-repeated",
+  "tags": { "project": "shor-braket", "campaign": "" },
   "force_quantum": true,
   "sdk_version": "amazon-braket-sdk==x.y.z",
   "git_commit": "..."
@@ -227,6 +228,9 @@ AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SN
 - [ ] TVD の閾値をいくつにするか（シミュレータは理想なので厳しくできるはず。統計誤差の扱い）
 - [ ] 深さ予算（トランスパイル後 2 qubit ゲート数の上限、または推定忠実度の下限）を
       実行ゲートに組み込むか。実機ペイロードの選定に使う（ADR-0001）
+- [ ] runner が付与するタグの集合を確定する。`project` は常時、`campaign` は `.env` の
+      `BRAKET_CAMPAIGN` が非空のときのみ。`campaign` は AQT のタグゲートの鍵であり
+      コスト配分タグでもある（`infra/iam/README.md` §6.1）
 - [ ] validated レコードの有効期限 30 日は妥当か
 - [ ] `--yes` を CI から使う運用を認めるか（現時点では想定しない）
 - [ ] 実機実行結果に対する「合格/不合格」判定を設けるか（ノイズがあるため単純な閾値は難しい）

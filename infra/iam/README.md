@@ -11,28 +11,45 @@ Terraform 化するときは `templatefile("${path.module}/../iam/*.json", {...}
 
 ---
 
-## 1. プロファイル分割の方針
+## 1. プリンシパルとプロファイルの分割方針
 
-権限を 2 つのプロファイルに分ける。**課金が発生する操作には MFA を必須にする。**
+IAM プリンシパルを **3 つ**に分ける。**課金が発生する操作には MFA を必須にする。**
 
-| プロファイル | 権限 | MFA | 用途 |
+| プリンシパル | 種別 | ポリシー | MFA | 用途 |
+|---|---|---|---|---|
+| `shor-braket-monitor` | IAM ユーザー | readonly | 不要 | **監視専用。** 閲覧のみで、実行ロールを assume する権限を持たない |
+| `shor-braket-operator` | IAM ユーザー | readonly + assume-exec | 読み取り時は不要 | 操作者の日常作業。読み取りと、実行ロールへの assume |
+| `ShorBraketExecutionRole` | IAM ロール | execute (Allow) + guardrail (Deny) | **必須** | タスク投入。operator が MFA 付きで assume して得る |
+
+操作者の端末から見たプロファイルは従来通り 2 つ。監視ユーザーの鍵は操作者の端末には置かない。
+
+| プロファイル | 実体 | MFA | 用途 |
 |---|---|---|---|
-| `shor-braket-ro` | 読み取りのみ | 不要 | デバイス一覧・価格取得・結果閲覧・コスト確認 |
-| `shor-braket-exec` | タスク投入 | **必須** | `submit-sv1` / `submit-qpu` |
+| `shor-braket-ro` | operator の長期キー | 不要 | デバイス一覧・価格取得・結果閲覧・コスト確認 |
+| `shor-braket-exec` | `shor-braket-ro` を source に role を assume | **必須** | `submit-sv1` / `submit-qpu` |
+| `shor-braket-monitor` | monitor の長期キー | 不要 | ダッシュボード・別端末・別の人。**実行不可** |
 
 実装は **IAM ユーザー + assume role** 方式。
 
 ```
-IAM User: shor-braket
-  └─ shor-braket-readonly-policy.json      (直接アタッチ・MFA 不要)
+IAM User: shor-braket-monitor
+  └─ shor-braket-readonly-policy.json      (閲覧のみ。assume の Allow を持たない)
+
+IAM User: shor-braket-operator
+  ├─ shor-braket-readonly-policy.json      (直接アタッチ・MFA 不要)
+  └─ shor-braket-assume-exec-policy.json   (sts:AssumeRole のみ。MFA 条件なし)
        │
-       │  sts:AssumeRole (MFA 必須)
+       │  sts:AssumeRole (MFA は信頼ポリシー側で強制)
        ▼
 IAM Role: ShorBraketExecutionRole
-  ├─ execution-role-trust-policy.json      (信頼ポリシー: MFA 必須)
+  ├─ execution-role-trust-policy.json      (信頼ポリシー: MFA 必須・1 時間で失効)
   ├─ shor-braket-execute-policy.json       (Allow)
   └─ shor-braket-guardrail-policy.json     (Deny)
 ```
+
+**監視と操作を別ユーザーにする理由**: 同じユーザーの長期キーを監視用に渡すと、
+その鍵の持ち主が MFA デバイスも持っていれば実行できてしまう。別ユーザーにすれば、
+監視用の鍵は assume の Allow 自体を持たないため、MFA の有無にかかわらず実行できない。
 
 `~/.aws/config`:
 
@@ -44,7 +61,7 @@ region = eu-north-1
 [profile shor-braket-exec]
 source_profile = shor-braket-ro
 role_arn       = arn:aws:iam::<ACCOUNT_ID>:role/ShorBraketExecutionRole
-mfa_serial     = arn:aws:iam::<ACCOUNT_ID>:mfa/shor-braket
+mfa_serial     = arn:aws:iam::<ACCOUNT_ID>:mfa/shor-braket-operator
 region         = eu-north-1
 duration_seconds = 3600
 ```
@@ -62,10 +79,11 @@ duration_seconds = 3600
 
 | ファイル | 種別 | アタッチ先 |
 |---|---|---|
-| `shor-braket-readonly-policy.json` | Allow | IAM ユーザー `shor-braket` |
+| `shor-braket-readonly-policy.json` | Allow | ユーザー `shor-braket-monitor` と `shor-braket-operator` の両方 |
+| `shor-braket-assume-exec-policy.json` | Allow | ユーザー `shor-braket-operator` **のみ** |
 | `execution-role-trust-policy.json` | 信頼ポリシー | ロール `ShorBraketExecutionRole` |
 | `shor-braket-execute-policy.json` | Allow | ロール `ShorBraketExecutionRole` |
-| `shor-braket-guardrail-policy.json` | Deny | ロール（およびユーザーにも推奨） |
+| `shor-braket-guardrail-policy.json` | Deny | ロール（および両ユーザーにも推奨） |
 | `shor-braket-guardrail-allowlist-EXPERIMENTAL.json` | Deny | **未検証**。§6 参照 |
 
 IAM では Deny が常に Allow に優先するため、ガードレールは Allow ポリシーの内容に
@@ -128,6 +146,15 @@ MFA なしの `CreateQuantumTask` を明示的に拒否する。
 > Deny が発動しないため、長期キーが素通りする。
 > `BoolIfExists` はキーが存在しない場合も真と評価するので、長期キーもまとめて拒否できる。
 
+### 4.3 ユーザー側の AssumeRole 許可には MFA 条件を付けない
+
+`shor-braket-assume-exec-policy.json` は `sts:AssumeRole` を無条件で Allow する。
+MFA の強制は信頼ポリシー（§4.1）が担う。
+
+ユーザー側の Allow に `aws:MultiFactorAuthPresent` 条件を付けると、長期キーで署名した
+AssumeRole リクエストにはそのキーが存在しないため、条件が一致せず assume が失敗しうる。
+効いたとしても信頼ポリシーと二重であり、効かなければ exec プロファイルが壊れるだけなので置かない。
+
 ---
 
 ## 5. なぜ Deny でデバイスを制限するのか
@@ -163,25 +190,64 @@ arn:aws:braket:<region>:*:device/quantum-simulator/<provider>/<device_id>
 `search-devices` が返す実 ARN はアカウント部が空（`arn:aws:braket:eu-north-1::device/...`）だが、
 **ポリシーではアカウント部に `*` を書く**。ここを空のままにすると一致しない。
 
+`braket:CreateQuantumTask` は条件キー `aws:RequestTag/<key>` と `aws:TagKeys` に対応する。
+これを Deny に組み合わせると「タグを付けた意図的な投入だけ通す」ゲートが書ける（§6.1）。
+
 ---
 
 ## 6. 拒否リストの中身と根拠
 
-月次予算 **100 USD** に対する 1 回（1000 ショット）あたりのコスト。
+判断基準は「**そのデバイスのショット上限いっぱいで 1 タスク投げたら、月次予算 100 USD に対して
+どれだけ溶けるか**」。IAM はショット数を制限できないので、最悪ケースはデバイス側の上限で決まる。
 
-| デバイス | 1000 shots 概算 | 予算 100 USD での実行可能回数 | 判定 |
-|---|---|---|---|
-| Rigetti Cepheus-1-108Q | $0.73 | 約 137 回 | ✅ 許可 |
-| IQM Garnet | $1.75 | 約 57 回 | ✅ 許可 |
-| IQM Emerald | $1.90 | 約 52 回 | ✅ 許可 |
-| AQT IBEX Q1 | $23.80 | 約 4 回 | ❌ 拒否 |
-| IonQ Forte Enterprise 1 | $80.30 | **約 1 回** | ❌ 拒否 |
+| デバイス | 上限ショット | 最悪 1 タスク | 予算比 | 判定 |
+|---|---|---|---|---|
+| Rigetti Cepheus-1-108Q | 50,000 | $21.55 | 22% | ✅ 許可 |
+| IQM Garnet | 20,000 | $29.30 | 29% | ✅ 許可 |
+| IQM Emerald | 20,000 | $32.30 | 32% | ✅ 許可 |
+| AQT IBEX Q1 | 2,000 | $47.30 | 47% | ⚠️ **タグゲート**（§6.1） |
+| IonQ Forte Enterprise 1 | 5,000 | $400.30 | **400%** | ❌ 無条件拒否 |
 
-**IonQ Forte Enterprise 1 は 1 回の実行で月次予算の 8 割を消費する。**
-誤操作で 2 回投げたら予算超過。拒否リストに入れる根拠として十分。
+**IonQ Forte Enterprise 1 は 1 タスクで予算の 4 倍を溶かせる。** これは認証レイヤで止める対象。
 
-AQT IBEX Q1 は全結合という利点があるが、ショット上限 2000、実行ウィンドウが
-週に数時間しかない、feed-forward 非対応と条件が悪く、$23.80/回 に見合わない。
+AQT IBEX Q1 は最悪でも予算の半分で、許可済みの超伝導機と同じ桁。一方で全結合のイオントラップとして
+デバイス比較（Wiki「デバイス比較」）に必要であり、200 ショット（$5.00）運用なら予算内に収まる。
+無条件 Deny では粒度が粗すぎ、無条件許可ではクライアント側のガードだけが頼りになる。
+そこで **タグで開ける Deny** にする。
+
+### 6.1 AQT のタグゲート
+
+```json
+{
+  "Sid": "DenyAqtUnlessCampaignTagged",
+  "Effect": "Deny",
+  "Action": ["braket:CreateQuantumTask", "braket:CreateJob"],
+  "Resource": ["arn:aws:braket:*:*:device/qpu/aqt/*"],
+  "Condition": {
+    "StringNotEqualsIfExists": { "aws:RequestTag/campaign": "device-comparison" }
+  }
+}
+```
+
+| リクエストのタグ | 条件の評価 | 結果 |
+|---|---|---|
+| なし | `...IfExists` はキー欠落を真と評価 | **拒否** |
+| `campaign=device-comparison` | 等しいので `StringNotEquals` は偽 | 通過（Allow 側の判定へ） |
+| `campaign=別の値` | 等しくないので真 | **拒否** |
+
+- 事故（癖で `SHOTS=1000`、`.env` の設定漏れ、クライアントのバグ）はタグが付かないので IAM で止まる
+- 意図した投入はクライアントがタグを付ける。`.env` の `BRAKET_CAMPAIGN=device-comparison` を
+  設定したときだけ runner がタグを付与する設計とする（`docs/03-execution-gate.md`）
+- タグはそのままコスト配分タグになる。監視ユーザーが Cost Explorer でキャンペーン別の消費を追える（§10）
+- `...IfExists` を使うのは、キー欠落時の評価を明示するため。否定演算子はキー欠落時に真を返すが、
+  その暗黙の挙動に依存しない
+
+**要検証**: デバイス ARN を Resource にした Deny と `aws:RequestTag` の組み合わせは、
+`simulate-principal-policy` で 3 ケース（§7.1）が期待通りになることを確認してから運用に載せる。
+通らない場合は AQT を Deny から外し、クライアント側の `BRAKET_MAX_COST_USD` に任せる。
+
+クライアント側の `BRAKET_MAX_COST_USD=10` なら IBEX は 412 ショットまで通り、1,000 ショット（$23.80）は
+弾かれる。IAM のタグゲートとクライアントの上限は独立に効く二重の防御。
 
 QuEra はアナログ量子シミュレーション (AHS) 専用でゲート型回路を実行できない。
 Xanadu / OQC / Pasqal は現在このアカウントから見えないが、将来復活・追加された場合に
@@ -219,6 +285,13 @@ make iam-verify     # .env の AWS_ACCOUNT_ID / IAM_PRINCIPAL を使う
 代表的な 5 デバイスについて `EvalDecision` を並べて表示する。
 IQM / Rigetti / シミュレータが `allowed`、IonQ / AQT が `explicitDeny` になれば期待通り。
 
+`.env` に `IAM_MONITOR_PRINCIPAL` を設定してあれば、監視ユーザーについても評価し、
+MFA ありのコンテキストでも `CreateQuantumTask` と `sts:AssumeRole` が `implicitDeny` になることを確認する。
+これが「監視用は実行権限を持たない」の実証。
+
+シミュレータの呼び出し自体には `iam:SimulatePrincipalPolicy` と
+`iam:GetContextKeysForPrincipalPolicy` が要る。readonly ポリシーの `IamPolicySimulation` に含めてある。
+
 > **注意**: `simulate-principal-policy` は既定で MFA なしのコンテキストで評価する。
 > MFA 必須の Deny があるため、実行ロールを対象にすると全部 `explicitDeny` になる。
 > MFA ありの状態を再現するには `--context-entries
@@ -234,6 +307,42 @@ aws iam simulate-principal-policy \
   --resource-arns "arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet" \
   --context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean
 ```
+
+### 7.1 AQT のタグゲートを確認する
+
+`make iam-verify` は AQT について 3 ケースを評価する。期待値は
+タグなし `explicitDeny`、`campaign=device-comparison` で `allowed`、別の値で `explicitDeny`。
+
+リクエストタグは `--context-entries` にもう 1 つ追加して再現する。
+
+```bash
+aws iam simulate-principal-policy \
+  --policy-source-arn "arn:aws:iam::$AWS_ACCOUNT_ID:role/ShorBraketExecutionRole" \
+  --action-names braket:CreateQuantumTask \
+  --resource-arns "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" \
+  --context-entries \
+    ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
+    ContextKeyName=aws:RequestTag/campaign,ContextKeyValues=device-comparison,ContextKeyType=string
+```
+
+### 7.2 プリンシパルを作る前に検証する
+
+`simulate-custom-policy` はポリシー本文を直接受け取るので、IAM リソースを作る前に
+ロジックを検証できる。`make iam-render` の出力を渡す。
+
+```bash
+aws iam simulate-custom-policy \
+  --policy-input-list \
+    "$(cat infra/iam/rendered/shor-braket-execute-policy.json)" \
+    "$(cat infra/iam/rendered/shor-braket-guardrail-policy.json)" \
+  --action-names braket:CreateQuantumTask \
+  --resource-arns "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" \
+  --context-entries \
+    ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
+  --query 'EvaluationResults[0].EvalDecision'
+```
+
+必要な権限は `iam:SimulateCustomPolicy`。管理者プロファイルで実行する。
 
 ---
 
@@ -264,3 +373,16 @@ Braket はアカウントごとにコンソールでの有効化（利用規約�
 3. サービスリンクロール `AWSServiceRoleForAmazonBraket` が作成される
 
 有効化後に、上記の専用 IAM ユーザー / ロールで実行する。
+
+---
+
+## 10. その他の手動手順（Terraform 不可）
+
+| 手順 | 理由 |
+|---|---|
+| **請求情報への IAM アクセスを有効化** | アカウント設定「IAM ユーザーおよびロールによる請求情報へのアクセス」。これを有効にしないと、ポリシーで許可していても IAM ユーザーから Budgets / Cost Explorer が読めない |
+| **operator ユーザーに MFA デバイスを登録** | 信頼ポリシーが MFA を要求するため、未登録だと exec プロファイルが使えない。登録後の serial を `~/.aws/config` の `mfa_serial` に書く |
+| Cost Explorer の有効化 | 初回はコンソールで有効化が必要。`ce:GetCostAndUsage` は 1 リクエスト 0.01 USD |
+| **コスト配分タグ `project` と `campaign` の有効化** | Billing コンソールの「コスト配分タグ」。有効化しないと Cost Explorer でタグ別に絞れない。有効化後のデータにしか効かないので、最初の投入より前に行う |
+
+monitor ユーザーには MFA を必須にしていないが、コンソールを使うなら登録を推奨する。

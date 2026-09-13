@@ -59,15 +59,35 @@
       "Resource": "*"
     },
     {
-      "Sid": "AssumeExecutionRoleWithMfa",
+      "Sid": "CostExplorerRead",
       "Effect": "Allow",
-      "Action": "sts:AssumeRole",
-      "Resource": "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ShorBraketExecutionRole",
-      "Condition": {
-        "Bool": {
-          "aws:MultiFactorAuthPresent": "true"
-        }
-      }
+      "Action": [
+        "ce:GetCostAndUsage",
+        "ce:GetCostForecast"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "BudgetAlertTopicRead",
+      "Effect": "Allow",
+      "Action": [
+        "sns:GetTopicAttributes",
+        "sns:ListSubscriptionsByTopic"
+      ],
+      "Resource": "arn:aws:sns:*:<AWS_ACCOUNT_ID>:shor-braket-*"
+    },
+    {
+      "Sid": "IamPolicySimulation",
+      "Effect": "Allow",
+      "Action": [
+        "iam:SimulatePrincipalPolicy",
+        "iam:GetContextKeysForPrincipalPolicy"
+      ],
+      "Resource": [
+        "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ShorBraketExecutionRole",
+        "arn:aws:iam::<AWS_ACCOUNT_ID>:user/shor-braket-operator",
+        "arn:aws:iam::<AWS_ACCOUNT_ID>:user/shor-braket-monitor"
+      ]
     }
   ]
 }

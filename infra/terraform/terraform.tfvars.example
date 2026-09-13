@@ -21,18 +21,28 @@ results_bucket_name = "amazon-braket-CHANGE-ME"
 results_transition_days = 90
 
 # ---- IAM ----
-iam_user_name = "shor-braket"
+# 操作者ユーザー。読み取り + 実行ロールへの assume。MFA デバイスを登録する
+operator_user_name = "shor-braket-operator"
+# 監視ユーザー。読み取りのみで assume 権限を持たない
+monitor_user_name = "shor-braket-monitor"
 
-# CreateQuantumTask を拒否するデバイス ARN パターン。
-# 根拠は infra/iam/README.md §4 を参照
+# CreateQuantumTask を無条件で拒否するデバイス ARN パターン (1 タスクで予算超過しうる機種)。
+# 根拠は infra/iam/README.md §6 を参照
 denied_device_arns = [
   "arn:aws:braket:*:*:device/qpu/ionq/*",
-  "arn:aws:braket:*:*:device/qpu/aqt/*",
   "arn:aws:braket:*:*:device/qpu/quera/*",
   "arn:aws:braket:*:*:device/qpu/xanadu/*",
   "arn:aws:braket:*:*:device/qpu/oqc/*",
   "arn:aws:braket:*:*:device/qpu/pasqal/*",
 ]
+
+# リクエストタグ campaign_tag_key = campaign_tag_value が付いた投入だけ許可するデバイス。
+# タグなし・別の値は拒否される (infra/iam/README.md §6.1)
+campaign_gated_device_arns = [
+  "arn:aws:braket:*:*:device/qpu/aqt/*",
+]
+campaign_tag_key   = "campaign"
+campaign_tag_value = "device-comparison"
 
 # ---- コスト ----
 monthly_budget_usd = 100

@@ -2,7 +2,7 @@
   "Version": "2012-10-17",
   "Statement": [
     {
-      "Sid": "DenyHighCostQpuProviders",
+      "Sid": "DenyBudgetBreakingQpuProviders",
       "Effect": "Deny",
       "Action": [
         "braket:CreateQuantumTask",
@@ -10,12 +10,27 @@
       ],
       "Resource": [
         "arn:aws:braket:*:*:device/qpu/ionq/*",
-        "arn:aws:braket:*:*:device/qpu/aqt/*",
         "arn:aws:braket:*:*:device/qpu/quera/*",
         "arn:aws:braket:*:*:device/qpu/xanadu/*",
         "arn:aws:braket:*:*:device/qpu/oqc/*",
         "arn:aws:braket:*:*:device/qpu/pasqal/*"
       ]
+    },
+    {
+      "Sid": "DenyAqtUnlessCampaignTagged",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateQuantumTask",
+        "braket:CreateJob"
+      ],
+      "Resource": [
+        "arn:aws:braket:*:*:device/qpu/aqt/*"
+      ],
+      "Condition": {
+        "StringNotEqualsIfExists": {
+          "aws:RequestTag/campaign": "device-comparison"
+        }
+      }
     },
     {
       "Sid": "DenyTaskCreationWithoutMfa",

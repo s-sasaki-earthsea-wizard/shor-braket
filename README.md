@@ -153,12 +153,13 @@ $EDITOR .env
 
 `.env` を作れば `make` が自動で読み込む。`make help` の末尾で読み込み状態を確認できる。
 
-**AWS プロファイルは権限で 2 つに分ける。**
+**IAM プリンシパルは監視 / 操作 / 実行ロールの 3 つに分け、操作者端末のプロファイルは権限で 2 つに分ける。**
 
 | プロファイル | 権限 | MFA | 用途 |
 |---|---|---|---|
 | `shor-braket-ro` | 読み取りのみ | 不要 | デバイス一覧・価格取得・結果閲覧 |
 | `shor-braket-exec` | タスク投入 | **必須** | `submit-sv1` / `submit-qpu` |
+| `shor-braket-monitor` | 読み取りのみ（**別 IAM ユーザー**、assume 権限なし） | 不要 | ダッシュボード・別端末・別の人 |
 
 実装は IAM ユーザー + MFA 必須の assume role。`~/.aws/config` の書き方と
 ポリシー JSON は [`infra/iam/README.md`](infra/iam/README.md)。

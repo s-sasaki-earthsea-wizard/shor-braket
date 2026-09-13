@@ -7,6 +7,7 @@ IAM_DIR    ?= infra/iam
 ACCOUNT_ID ?= $(AWS_ACCOUNT_ID)
 BUCKET     ?= $(BRAKET_RESULTS_BUCKET)
 PRINCIPAL  ?= $(IAM_PRINCIPAL)
+MONITOR_PRINCIPAL ?= $(IAM_MONITOR_PRINCIPAL)
 
 define require_env
 	@test -n "$($(1))" || { \
@@ -42,14 +43,13 @@ iam-verify:  ## IAM ポリシーの効果をシミュレータで検証する (�
 	$(call require_env,PRINCIPAL,IAM_PRINCIPAL,iam-verify)
 	@echo ""
 	@echo "  principal: arn:aws:iam::$(ACCOUNT_ID):$(PRINCIPAL)  (MFA present = true)"
-	@echo "  expected : allowed for iqm/rigetti/simulator, explicitDeny for ionq/aqt"
+	@echo "  expected : allowed for iqm/rigetti/simulator, explicitDeny for ionq"
 	@echo ""
 	@for arn in \
 		"arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet" \
 		"arn:aws:braket:us-west-1::device/qpu/rigetti/Cepheus-1-108Q" \
 		"arn:aws:braket:::device/quantum-simulator/amazon/sv1" \
-		"arn:aws:braket:us-east-1::device/qpu/ionq/Forte-Enterprise-1" \
-		"arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" ; do \
+		"arn:aws:braket:us-east-1::device/qpu/ionq/Forte-Enterprise-1" ; do \
 		d=$$(aws iam simulate-principal-policy \
 			--policy-source-arn arn:aws:iam::$(ACCOUNT_ID):$(PRINCIPAL) \
 			--action-names braket:CreateQuantumTask \
@@ -57,6 +57,21 @@ iam-verify:  ## IAM ポリシーの効果をシミュレータで検証する (�
 			--context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
 			--query 'EvaluationResults[0].EvalDecision' --output text 2>&1 | tail -1); \
 		printf "  %-16s %s\n" "$$d" "$$arn"; \
+	done
+	@echo ""
+	@echo "  AQT のタグゲートを確認 (MFA あり)"
+	@echo "  期待値: タグなし explicitDeny / campaign=device-comparison allowed / 別の値 explicitDeny"
+	@echo ""
+	@for tag in "" "device-comparison" "wrong-value"; do \
+		if [ -z "$$tag" ]; then ctx=""; label="(no tag)"; \
+		else ctx="ContextKeyName=aws:RequestTag/campaign,ContextKeyValues=$$tag,ContextKeyType=string"; label="campaign=$$tag"; fi; \
+		d=$$(aws iam simulate-principal-policy \
+			--policy-source-arn arn:aws:iam::$(ACCOUNT_ID):$(PRINCIPAL) \
+			--action-names braket:CreateQuantumTask \
+			--resource-arns "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" \
+			--context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean $$ctx \
+			--query 'EvaluationResults[0].EvalDecision' --output text 2>&1 | tail -1); \
+		printf "  %-16s %s\n" "$$d" "aqt/Ibex-Q1 $$label"; \
 	done
 	@echo ""
 	@echo "  MFA なしでの拒否を確認 (期待値: すべて explicitDeny)"
@@ -73,6 +88,29 @@ iam-verify:  ## IAM ポリシーの効果をシミュレータで検証する (�
 		printf "  %-16s %s\n" "$$d" "$$arn"; \
 	done
 	@echo ""
+	@if [ -n "$(MONITOR_PRINCIPAL)" ]; then \
+		echo "  監視ユーザーに実行権限がないことを確認 (MFA あり, 期待値: すべて implicitDeny)"; \
+		echo "  principal: arn:aws:iam::$(ACCOUNT_ID):$(MONITOR_PRINCIPAL)"; \
+		echo ""; \
+		for arn in \
+			"arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet" \
+			"arn:aws:braket:::device/quantum-simulator/amazon/sv1" ; do \
+			d=$$(aws iam simulate-principal-policy \
+				--policy-source-arn arn:aws:iam::$(ACCOUNT_ID):$(MONITOR_PRINCIPAL) \
+				--action-names braket:CreateQuantumTask \
+				--resource-arns "$$arn" \
+				--context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
+				--query 'EvaluationResults[0].EvalDecision' --output text 2>&1 | tail -1); \
+			printf "  %-16s %s\n" "$$d" "$$arn"; \
+		done; \
+		d=$$(aws iam simulate-principal-policy \
+			--policy-source-arn arn:aws:iam::$(ACCOUNT_ID):$(MONITOR_PRINCIPAL) \
+			--action-names sts:AssumeRole \
+			--resource-arns "arn:aws:iam::$(ACCOUNT_ID):role/ShorBraketExecutionRole" \
+			--query 'EvaluationResults[0].EvalDecision' --output text 2>&1 | tail -1); \
+		printf "  %-16s %s\n" "$$d" "sts:AssumeRole -> role/ShorBraketExecutionRole"; \
+		echo ""; \
+	fi
 
 .PHONY: tf-fmt
 tf-fmt:  ## Terraform のコードを整形する

@@ -112,14 +112,22 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 ## AWS
 
 - **root アカウントのアクセスキーを使わない。**
-- **プロファイルを権限で 2 つに分ける**（`infra/iam/README.md`）
-  - `shor-braket-ro` — 読み取りのみ、MFA 不要
-  - `shor-braket-exec` — タスク投入、**MFA 必須の assume role**
-  - 読み取り系ターゲットは RO、`submit-*` は EXEC を使う
+- **IAM プリンシパルを 3 つに分ける**（`infra/iam/README.md`）
+  - `shor-braket-monitor` — 監視専用ユーザー。閲覧のみで assume の Allow を持たない
+  - `shor-braket-operator` — 操作者ユーザー。読み取り + 実行ロールへの assume
+  - `ShorBraketExecutionRole` — タスク投入。**MFA 必須の assume role**
+  - 操作者端末のプロファイルは `shor-braket-ro`（読み取り）と `shor-braket-exec`（投入）。
+    読み取り系ターゲットは RO、`submit-*` は EXEC を使う
+- **ユーザー側の AssumeRole 許可に MFA 条件を付けない。** MFA は信頼ポリシー側で強制する。
+  長期キーのリクエストには `aws:MultiFactorAuthPresent` が存在せず、ユーザー側の条件は
+  効かないか assume を壊すだけ
 - **デバイス制限は `Allow` ではなく `Deny` で書く。** Braket の IAM リソースタイプは
   `quantum-task` のみで、デバイスは `Allow` の `Resource` で絞れない（AWS 公式仕様）
 - MFA 判定は `Bool` ではなく **`BoolIfExists`** を使う。長期アクセスキーでは
   `aws:MultiFactorAuthPresent` キー自体が存在せず、`Bool` だと Deny が発動しない
+- **AQT はタグで開ける Deny。** リクエストタグ `campaign=device-comparison` が無いと
+  `CreateQuantumTask` を拒否する。1 タスクで予算超過しうる機種（IonQ 等）は無条件 Deny のまま
+  （`infra/iam/README.md` §6）
 - **ショット数を制限する IAM 条件キーは存在しない。** クライアント側 + AWS Budgets で守る
 - Terraform で管理するもの: S3（結果保存）、IAM、AWS Budgets + SNS、CloudWatch ロググループ
 - Terraform で管理しないもの: 量子タスク（使い捨ての実行単位であり状態管理対象として不適切）
@@ -137,7 +145,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | Terraform ステート | ローカル管理 | `docs/adr/0002-*.md` |
 | 月次予算 | **100 USD** | `docs/adr/0002-*.md` |
 | 第一候補デバイス | IQM Garnet（feed-forward 対応 + 低単価） | `docs/04-devices-and-cost.md` |
-| AWS プロファイル | 読み取り / 実行(MFA 必須) の 2 分割 | `docs/adr/0002-*.md` |
+| AQT IBEX Q1 の扱い | タグゲート付き Deny（`campaign=device-comparison` で開く） | `docs/adr/0002-*.md` |
+| IAM プリンシパル | 監視ユーザー / 操作ユーザー / 実行ロール(MFA 必須) の 3 分割 | `docs/adr/0002-*.md` |
 
 ---
 

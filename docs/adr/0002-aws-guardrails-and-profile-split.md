@@ -58,13 +58,23 @@ AWS が文書化している唯一の方式。「知らないデバイスは通�
 | Rigetti Cepheus-1-108Q | $0.73 | 約 137 回 | 許可 |
 | IQM Garnet | $1.75 | 約 57 回 | 許可 |
 | IQM Emerald | $1.90 | 約 52 回 | 許可 |
-| AQT IBEX Q1 | $23.80 | 約 4 回 | 拒否 |
+| AQT IBEX Q1 | $23.80 | 約 4 回 | 拒否 → **タグゲートに改訂**（下記 2026-09-13） |
 | IonQ Forte Enterprise 1 | $80.30 | **約 1 回** | 拒否 |
 
 Hybrid Jobs は SageMaker インスタンスを時間課金で起動するため全面禁止。
 
 許可リスト方式（`*-allowlist-EXPERIMENTAL.json`）は
 `aws iam simulate-principal-policy` で期待通りに動くことを確認できてから切り替える。
+
+**2026-09-13 改訂**: 拒否リストの判断基準を「1,000 ショットのコスト」から
+「**デバイスのショット上限での最悪 1 タスクが予算に対してどれだけか**」に改める。
+IonQ Forte Enterprise 1 は最悪 $400.30（予算の 4 倍）で無条件 Deny を維持する。
+AQT IBEX Q1 は最悪 $47.30（予算の半分）で許可済みの超伝導機と同じ桁であり、
+デバイス比較に必要なため、**リクエストタグ `campaign=device-comparison` が付いた投入だけ通す
+タグゲート付き Deny** に変更する（`infra/iam/README.md` §6.1）。事故は IAM で止まり、
+意図した投入は監査可能なタグ付きで通る。タグはコスト配分にも使う。
+`simulate-principal-policy` で 3 ケースの検証が通らなければ AQT を Deny から外し、
+クライアント側の `BRAKET_MAX_COST_USD` に任せる。
 
 ### 2. AWS プロファイルを読み取り / 実行の 2 つに分け、実行側に MFA を必須とする
 
@@ -78,6 +88,15 @@ MFA 必須の信頼ポリシーを持つロール `ShorBraketExecutionRole` に 
 
 MFA 判定には **`BoolIfExists`** を使う。長期アクセスキーで署名したリクエストには
 `aws:MultiFactorAuthPresent` キーが存在せず、`Bool` では Deny が発動しないため。
+
+**2026-09-13 改訂**: 監視専用の IAM ユーザー `shor-braket-monitor` を追加し、
+監視 / 操作 / 実行ロールの 3 プリンシパル構成にする。readonly ポリシーから `sts:AssumeRole` を
+分離して `shor-braket-assume-exec-policy.json` とし、操作者ユーザー `shor-braket-operator` に
+のみアタッチする。監視ユーザーは MFA の有無にかかわらず実行できない。
+あわせて、ユーザー側の AssumeRole 許可から MFA 条件を外す。MFA は信頼ポリシー側で強制する。
+長期キーのリクエストには条件キーが存在せず、ユーザー側の条件は効かないか assume を壊すため。
+監視ユーザーが月次の実消費を見られるよう、readonly に `ce:GetCostAndUsage` を追加する
+（1 リクエスト 0.01 USD）。
 
 ### 3. Terraform ステートはローカル管理
 
