@@ -111,8 +111,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 ## AWS
 
-- **root アカウントのアクセスキーを使わない。** 2026-09-13 時点で `default` プロファイルが root キーだったため、
-  `infra/iam/README.md` §11 の bootstrap（MFA 必須の `AdminRole` + root キー削除）を先に行う
+- **root アカウントのアクセスキーを使わない。** 2026-09-13 時点で `default` プロファイルが root キーだった。
+  `infra/iam/README.md` §11 の bootstrap を先に行う: `admin-base` + MFA + `AdminRole` を作り、
+  動作確認してから `terraform-admin`（未使用の管理者）と root キーを廃止する。順番を守ること
 - **Terraform は `AWS_PROFILE_ADMIN`（MFA 必須の assume role）で実行する。** `make tf-plan` / `tf-apply` は
   呼び出し元が root なら拒否する。管理者プリンシパル・アクセスキー・MFA デバイスは Terraform に入れない
 - **IAM プリンシパルは Terraform で作る**（`infra/terraform/iam.tf`）。ポリシー本文は `infra/iam/*.json` が唯一の定義で、

@@ -32,6 +32,22 @@ define require_env
 		exit 1; }
 endef
 
+.PHONY: bootstrap-admin
+bootstrap-admin:  ## ⚠️ 一度きり: 管理者を MFA 必須の assume role にする (CHECK=1 で確認のみ)
+	@bash infra/iam/bootstrap-admin.sh $(if $(CHECK),--check,)
+
+.PHONY: retire-user
+# RETIRE_USER, not USER: the shell exports USER as the login name, so a bare
+# `make retire-user` would silently target it.
+retire-user:  ## ⚠️ 不要になった IAM ユーザーを削除する (例: make retire-user RETIRE_USER=terraform-admin)
+	@test -n "$(RETIRE_USER)" || { \
+		echo ""; \
+		echo "  RETIRE_USER is not set."; \
+		echo "  例: make retire-user RETIRE_USER=terraform-admin"; \
+		echo ""; \
+		exit 1; }
+	@bash infra/iam/bootstrap-admin.sh --retire "$(RETIRE_USER)"
+
 .PHONY: iam-lint
 iam-lint:  ## IAM ポリシー JSON の構文を検証する
 	@for f in $(IAM_DIR)/*.json; do \
