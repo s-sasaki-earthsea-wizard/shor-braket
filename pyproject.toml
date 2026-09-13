@@ -51,7 +51,7 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["braket.*"]
+module = ["braket.*", "networkx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

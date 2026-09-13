@@ -4,13 +4,22 @@
 """Command-line entry points for local development."""
 
 import json
+import sys
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from braket.circuits import Circuit
 
-from shor_braket.cost import qpu_cost_estimates
+from shor_braket.cost import QPU_CANDIDATES, qpu_cost_estimates
+from shor_braket.devices import (
+    DEFAULT_SNAPSHOT_DIR,
+    load_snapshot,
+    save_snapshot,
+    snapshot_from_get_device,
+    summarize_snapshot,
+)
+from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
 from shor_braket.runner.reference import run_reference_simulation
 
@@ -81,4 +90,135 @@ def qpu_costs(shots: Annotated[int, typer.Option(min=1)] = 1000) -> None:
             indent=2,
             sort_keys=True,
         )
+    )
+
+
+def _echo_json(payload: dict[str, Any]) -> None:
+    typer.echo(json.dumps(payload, indent=2, sort_keys=True, ensure_ascii=False))
+
+
+@app.command("snapshot-import")
+def snapshot_import(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex")],
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    input_path: Annotated[
+        Path | None,
+        typer.Option("--input", dir_okay=False, help="GetDevice JSON; default reads stdin."),
+    ] = None,
+) -> None:
+    """Store a `braket get-device` response as an offline snapshot for the emulator."""
+    text = input_path.read_text("utf-8") if input_path else sys.stdin.read()
+    try:
+        snapshot = snapshot_from_get_device(json.loads(text), key=device)
+    except ValueError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    path = save_snapshot(snapshot, snapshot_dir)
+    _echo_json(
+        {
+            "path": str(path),
+            "device_arn": snapshot.arn,
+            "device_name": snapshot.name,
+            "status_at_fetch": snapshot.status_at_fetch,
+            "fetched_at": snapshot.fetched_at,
+            "calibration_updated_at": snapshot.calibration_updated_at,
+            "capabilities_sha256": snapshot.capabilities_sha256,
+        }
+    )
+
+
+@app.command("snapshot-show")
+def snapshot_show(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex")],
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+) -> None:
+    """Summarise a committed snapshot: qubits, native gates, couplers, fidelities, price."""
+    if device not in QPU_CANDIDATES:
+        typer.echo(
+            f"error: {device!r} is not an approved QPU; choose one of {sorted(QPU_CANDIDATES)}",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    snapshot = load_snapshot(device, snapshot_dir)
+    summary = summarize_snapshot(snapshot)
+    _echo_json(
+        {
+            "device": {
+                "key": device,
+                "name": snapshot.name,
+                "arn": snapshot.arn,
+                "status_at_fetch": snapshot.status_at_fetch,
+                "fetched_at": snapshot.fetched_at,
+                "calibration_updated_at": snapshot.calibration_updated_at,
+                "capabilities_sha256": snapshot.capabilities_sha256,
+            },
+            "qubit_count": summary.qubit_count,
+            "native_gate_set": list(summary.native_gate_set),
+            "fully_connected": summary.fully_connected,
+            "couplers": len(summary.edges),
+            "best_edge": list(summary.best_edge()),
+            "worst_edge": list(summary.worst_edge()),
+            "statistics": summary.statistics(),
+            "shots_range": list(summary.shots_range) if summary.shots_range else None,
+            "price_per_shot_usd": summary.price_per_shot_usd,
+            "execution_windows": summary.execution_windows,
+        }
+    )
+
+
+@app.command("emulate")
+def emulate(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex | all")] = "all",
+    shots: Annotated[int, typer.Option(min=1)] = 2000,
+    sweep_shots: Annotated[int, typer.Option(min=1)] = 4000,
+    output_dir: Annotated[Path, typer.Option(file_okay=False)] = Path("runs/raw"),
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    visualize: Annotated[
+        bool,
+        typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
+    ] = True,
+) -> None:
+    """Validate and run native smoke circuits on calibration-backed local emulators (offline)."""
+    keys = list(QPU_CANDIDATES) if device == "all" else [device]
+    unknown = [key for key in keys if key not in QPU_CANDIDATES]
+    if unknown:
+        typer.echo(
+            f"error: {unknown[0]!r} has no local emulator target; "
+            f"choose one of {sorted(QPU_CANDIDATES)} or 'all'",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if device == "all":
+        comparison = run_emulator_comparison(
+            keys,
+            shots=shots,
+            sweep_shots=sweep_shots,
+            output_dir=output_dir,
+            snapshot_dir=snapshot_dir,
+            visualize=visualize,
+        )
+        comparison.pop("reports")
+        _echo_json(comparison)
+        return
+    report = run_emulator_report(
+        device_key=device,
+        shots=shots,
+        sweep_shots=sweep_shots,
+        output_dir=output_dir,
+        snapshot_dir=snapshot_dir,
+        visualize=visualize,
+    )
+    _echo_json(
+        {
+            "artifact_path": report.get("artifact_path"),
+            "device": report["device"]["key"],
+            "calibration_updated_at": report["device"]["snapshot"]["calibration_updated_at"],
+            "accepted": [row["name"] for row in report["validation"] if row["accepted"]],
+            "rejected": [row["name"] for row in report["validation"] if not row["accepted"]],
+            "runs": {
+                name: {"tvd": run["tvd"], "ideal_support_mass": run["ideal_support_mass"]}
+                for name, run in report["runs"].items()
+            },
+            "qpu_gate": report["qpu_gate"],
+        }
     )
