@@ -48,6 +48,10 @@ def simulate(
     count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 8,
     shots: Annotated[int, typer.Option(min=1)] = 1000,
     output_dir: Annotated[Path, typer.Option(file_okay=False)] = Path("runs/raw"),
+    visualize: Annotated[
+        bool,
+        typer.Option("--visualize/--no-visualize", help="Generate educational SVG/PNG reports."),
+    ] = True,
 ) -> None:
     """Factor an integer with the local-only Shor reference circuit."""
     report = run_reference_simulation(
@@ -56,6 +60,7 @@ def simulate(
         count_qubit_count=count_qubits,
         shots=shots,
         output_dir=output_dir,
+        visualize=visualize,
     )
     typer.echo(json.dumps(report, indent=2, sort_keys=True))
     if not report["validation"]["passed"]:

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import json
+from pathlib import Path
 
 import numpy as np
 from typer.testing import CliRunner
@@ -66,8 +67,16 @@ def test_reference_run_factors_fifteen_and_writes_artifact(tmp_path):
     assert report["execution"]["estimated_cost_usd"] == "0.00"
     assert sum(report["sampled"]["measurement_counts"].values()) == 64
 
-    artifact_path = tmp_path / str(report["artifact_path"]).split(str(tmp_path) + "/", 1)[1]
+    artifact_path = Path(report["artifact_path"])
     assert json.loads(artifact_path.read_text())["problem"]["factorization"] == [3, 5]
+    visualizations = report["visualizations"]
+    assert visualizations["generator"] == "matplotlib"
+    assert (artifact_path.parent / visualizations["walkthrough_html"]).stat().st_size > 0
+    walkthrough = (artifact_path.parent / visualizations["walkthrough_markdown"]).read_text()
+    assert "15 = 3 × 5" in walkthrough
+    for formats in visualizations["figures"].values():
+        assert (artifact_path.parent / formats["svg"]).stat().st_size > 0
+        assert (artifact_path.parent / formats["png"]).stat().st_size > 0
 
 
 def test_simulate_cli_reports_factorization_without_aws(tmp_path):
@@ -85,6 +94,7 @@ def test_simulate_cli_reports_factorization_without_aws(tmp_path):
             "32",
             "--output-dir",
             str(tmp_path),
+            "--no-visualize",
         ],
     )
 

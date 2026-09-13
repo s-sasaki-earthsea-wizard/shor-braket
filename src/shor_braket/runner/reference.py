@@ -7,6 +7,7 @@ import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
+from fractions import Fraction
 from importlib.metadata import version
 from pathlib import Path
 from typing import Any
@@ -21,10 +22,15 @@ from shor_braket.analysis.distribution import (
     total_variation_distance,
 )
 from shor_braket.classical.order import multiplicative_order
-from shor_braket.classical.postprocess import recover_factors
+from shor_braket.classical.postprocess import (
+    factors_from_order,
+    recover_factors,
+    recover_orders,
+)
 from shor_braket.cost import qpu_cost_estimates
 from shor_braket.quantum.reference import ReferenceCircuit, build_reference_circuit
 from shor_braket.runner.local import run_local
+from shor_braket.visualization import generate_walkthrough
 
 EXACT_TVD_TOLERANCE = 1e-10
 
@@ -61,6 +67,57 @@ def _count_values(measurement_counts: Mapping[str, int], count_qubit_count: int)
     return {int(state[:count_qubit_count], 2) for state in measurement_counts}
 
 
+def _phase_candidates(
+    count_values: set[int], *, modulus: int, base: int, count_qubit_count: int
+) -> list[dict[str, Any]]:
+    scale = 1 << count_qubit_count
+    candidates: list[dict[str, Any]] = []
+    for count_value in sorted(count_values):
+        phase = Fraction(count_value, scale)
+        approximation = phase.limit_denominator(modulus)
+        orders = recover_orders(
+            {count_value},
+            modulus=modulus,
+            base=base,
+            count_qubits=count_qubit_count,
+        )
+        order = orders[0] if orders else None
+        half_power = (
+            pow(base, order // 2, modulus) if order is not None and order % 2 == 0 else None
+        )
+        factors = (
+            factors_from_order(modulus=modulus, base=base, order=order)
+            if order is not None
+            else None
+        )
+        if count_value == 0:
+            reason = "zero phase contains no period denominator"
+        elif order is None:
+            reason = "continued fraction did not yield a valid order"
+        elif factors is not None:
+            reason = "valid order yields two non-trivial gcd factors"
+        elif order % 2:
+            reason = "order is odd"
+        elif half_power in (1, modulus - 1):
+            reason = "half power is congruent to +1 or -1 modulo N"
+        else:
+            reason = "gcd step did not yield non-trivial factors"
+        candidates.append(
+            {
+                "count_value": count_value,
+                "binary": format(count_value, f"0{count_qubit_count}b"),
+                "phase_fraction": str(phase),
+                "continued_fraction": str(approximation),
+                "denominator": approximation.denominator,
+                "order_candidate": order,
+                "half_power": half_power,
+                "factorization": list(factors) if factors else None,
+                "reason": reason,
+            }
+        )
+    return candidates
+
+
 def run_reference_simulation(
     *,
     modulus: int = 15,
@@ -68,8 +125,9 @@ def run_reference_simulation(
     count_qubit_count: int = 8,
     shots: int = 1000,
     output_dir: Path | None = Path("runs/raw"),
+    visualize: bool = True,
 ) -> dict[str, Any]:
-    """Run exact and sampled simulations, validate them, and write a JSON artifact."""
+    """Run, validate, and visualize the local reference simulation."""
     if shots < 1:
         raise ValueError("shots must be positive")
 
@@ -120,7 +178,7 @@ def run_reference_simulation(
     created_at = datetime.now(UTC)
     classical_order = multiplicative_order(base, modulus)
     report: dict[str, Any] = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at": created_at.isoformat(),
         "execution": {
             "backend": "braket_sv",
@@ -135,6 +193,20 @@ def run_reference_simulation(
             "classical_order": classical_order,
             "factorization": list(exact_factors) if exact_factors else None,
             "quantum_contributed": exact_factors is not None,
+        },
+        "education": {
+            "base": base,
+            "modular_orbit": [
+                {"exponent": exponent, "value": pow(base, exponent, modulus)}
+                for exponent in range(classical_order + 1)
+            ],
+            "phase_scale": 1 << count_qubit_count,
+            "phase_candidates": _phase_candidates(
+                exact_count_values,
+                modulus=modulus,
+                base=base,
+                count_qubit_count=count_qubit_count,
+            ),
         },
         "circuit": {
             "circuit_hash": circuit_hash,
@@ -175,18 +247,18 @@ def run_reference_simulation(
             "amazon_braket_sdk": version("amazon-braket-sdk"),
             "amazon_braket_default_simulator": version("amazon-braket-default-simulator"),
             "numpy": version("numpy"),
+            "matplotlib": version("matplotlib"),
         },
     }
 
     if output_dir is not None:
-        run_id = (
-            f"local-n{modulus}-a{base}-{created_at:%Y%m%dT%H%M%S%fZ}-"
-            f"{circuit_hash[7:19]}"
-        )
+        run_id = f"local-n{modulus}-a{base}-{created_at:%Y%m%dT%H%M%S%fZ}-{circuit_hash[7:19]}"
         artifact_dir = output_dir / run_id
         artifact_dir.mkdir(parents=True, exist_ok=False)
         artifact_path = artifact_dir / "result.json"
         report["artifact_path"] = str(artifact_path)
+        if visualize:
+            report["visualizations"] = generate_walkthrough(report, artifact_dir)
         artifact_path.write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",

@@ -20,6 +20,7 @@ services:
       AWS_EC2_METADATA_DISABLED: "true"
       COVERAGE_FILE: /tmp/.coverage
       MYPY_CACHE_DIR: /tmp/mypy-cache
+      MPLCONFIGDIR: /tmp/matplotlib
       PIP_NO_CACHE_DIR: "1"
       RUFF_CACHE_DIR: /tmp/ruff-cache
     command: ["shor-braket", "smoke"]

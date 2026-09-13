@@ -5,7 +5,7 @@ sim-smoke:  ## Bell 状態の回路で Docker のローカルシミュレータ�
 	$(LOCAL_RUN) shor-braket smoke --shots "$(SHOTS)"
 
 .PHONY: sim
-sim:  ## ローカル参照回路で Shor の位数発見を実行する (既定: N=15, a=7, t=8)
+sim:  ## Shor の位数発見を実行し、SVG/PNG/HTML の教材を生成する (既定: N=15, a=7, t=8)
 	$(LOCAL_RUN) shor-braket simulate \
 		--modulus "$(N)" --base "$(A)" --count-qubits "$(T)" --shots "$(SHOTS)"
 

@@ -152,7 +152,7 @@ Docker を起動してから、リポジトリのルートで実行する。ホ�
 make setup                      # requirements.txt から Docker イメージを構築
 make sim-smoke                   # Bell 回路を 1000 shots で実行
 make sim-smoke SHOTS=256         # ショット数を指定
-make sim                         # N=15, a=7, t=8, 1000 shots で 3 × 5 を復元
+make sim                         # N=15 を因数分解し、過程を SVG/PNG/HTML で可視化
 make sim SHOTS=256               # shots を変更して実行
 make qpu-costs SHOTS=1000        # 将来の QPU 候補 3 機の概算を表示（AWS 接続なし）
 make check                      # ruff + mypy + pytest
@@ -166,6 +166,19 @@ make shell                      # 同じ環境の bash に入る（exit で終�
 これは環境の動作確認であり、Shor の位数発見は `make sim` で行う。結果は
 `runs/raw/local-n15-a7-*/result.json` に保存される。解析実行（shots=0）で回路の理想同時分布を検証し、
 指定 shots のサンプリング結果と将来の QPU 費用概算も同じレポートに残す。
+
+同じrunディレクトリにはMatplotlibで生成した `walkthrough.html`、`walkthrough.md` と
+`figures/` が作られる。HTMLをブラウザで開くと、次の順で `15 = 3 × 5` に至る過程を追える。
+
+1. Shor全体の古典・量子パイプライン
+2. count/work registerと量子回路の役割
+3. モジュラー累乗列の周期
+4. Hadamard、モジュラー累乗、逆QFT後の同時確率
+5. 理想的な測定ピークと有限shotsの標本頻度
+6. 連分数、位数候補、2本のgcd計算による因数復元
+
+SVGは拡大しても数式やラベルが鮮明な教材用、PNGはスライドなどへ貼りやすい形式だ。
+各図は `result.json` 内のそのrunの値から生成される。`--no-visualize` を指定すると図の生成だけを省略できる。
 
 `make sim-all` は N=15 に加えて N=6 の縮退ケースも実行する。N=6 では位数2を復元できるが、
 $a^{r/2} \equiv -1 \pmod 6$ のため量子部分から非自明な因数は得られないことを確認する。
