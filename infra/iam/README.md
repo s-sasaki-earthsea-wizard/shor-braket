@@ -493,6 +493,13 @@ make retire-user RETIRE_USER=terraform-admin
 **表示が切り替わるのを待って**次のコードを 2 つ目に入れる。同じコードを 2 回入れると拒否される。
 入力ミスは 3 回まで再試行できる。
 
+最後の検証でも assume のために MFA コードを 1 つ求められる。作ったばかりのロールは
+assume できるようになるまで数秒かかるため、スクリプトは先に 15 秒待ってから 1 回目を試みる。
+それでも失敗する場合は 10 秒待って再試行するが、**再試行のたびに新しいコードが要る**。
+
+> **注意**: この MFA プロンプトは AWS CLI が直接端末に出すため、スクリプトの伏字処理を通らない。
+> **アカウント ID がそのまま表示される。** ログを貼るときは自分で伏せること。
+
 変数で上書きできる: `BASE_USER` `ADMIN_ROLE` `PROFILE` `SRC_PROFILE` `REGION` `MFA_NAME`。
 `REGION` は IAM が global のため表示上の意味しかない。Terraform は
 `var.results_bucket_region` で自分のリージョンを固定する。

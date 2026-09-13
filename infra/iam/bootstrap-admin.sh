@@ -235,8 +235,14 @@ else
     say "That happens when a previous run was interrupted."
     say ""
     say "Is it already in your authenticator app (did you scan that QR)?"
-    printf '  [y] enter codes from it   [n] delete it and issue a new QR : '
-    read -r reuse
+    while true; do
+      printf '  [y] enter codes from it   [n] delete it and issue a new QR : '
+      read -r reuse
+      case "$reuse" in
+        y|Y|n|N) break ;;
+        *)       say "please answer y or n (this prompt is not asking for a code)" ;;
+      esac
+    done
     case "$reuse" in
       y|Y) say "reusing $MFA_NAME" ;;
       *)   aws iam delete-virtual-mfa-device --serial-number "$MFA_SERIAL"
@@ -344,25 +350,32 @@ say "written to ~/.aws/config (no secrets there)"
 # ======================================================== 6. verify
 
 head_ "6. Verify"
+say "A newly created role takes a few seconds to become assumable, and every"
+say "attempt consumes a fresh MFA code, so wait first rather than retry blindly."
+say "Pausing 15s."
+sleep 15
+say ""
 say "Assuming the role. You will be asked for an MFA code."
-say "New IAM principals take a few seconds to propagate; this retries."
 say ""
 for attempt in 1 2 3 4 5; do
   if NEW_ARN="$(aws sts get-caller-identity --profile "$PROFILE" --query Arn --output text 2>/dev/null)"; then
     say "caller is now $(printf '%s' "$NEW_ARN" | redact)"
     cat <<EOT
 
-  Done. Next steps, in this order:
+  Done. Remaining steps, in this order:
 
     1. set AWS_PROFILE_ADMIN=$PROFILE in .env
-    2. retire the unused admin:  bash $0 --retire terraform-admin
-    3. delete the root access key: infra/iam/README.md section 11.5
-    4. remove [default] from ~/.aws/credentials and ~/.aws/config
+    2. retire any admin user that is no longer needed:
+         make retire-user BOOTSTRAP_PROFILE=$PROFILE RETIRE_USER=<name>
+    3. delete the root access key, while the root credential still works:
+         infra/iam/README.md section 11.5
+    4. only then remove [default] from ~/.aws/credentials
+    5. make tf-init && make tf-plan
 
 EOT
     exit 0
   fi
-  say "attempt $attempt failed, waiting 5s"
-  sleep 5
+  say "attempt $attempt failed; still propagating. Waiting 10s, then a fresh code."
+  sleep 10
 done
 die "Could not assume $ADMIN_ROLE. Nothing was rolled back; fix the error and re-run."
