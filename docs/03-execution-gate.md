@@ -1,7 +1,7 @@
 # 実行ゲート仕様
 
-**要件**: ローカルシミュレータでの検証をパスした計算のみ、Amazon Braket の課金対象デバイス
-（オンデマンドシミュレータ SV1 / 実機 QPU）で実行できる。
+**要件**: QPU 互換回路を対象機の `LocalEmulator` まで通した計算のみ、Amazon Braket の実機 QPU で
+実行できる。密行列を使う `local-reference` 回路は検証基準であり、QPU 投入資格を発行しない。
 
 ---
 
@@ -27,11 +27,12 @@
 | L1 クライアント | validated レコード必須 + 回路ハッシュ一致 | F1, F4 |
 | L2 クライアント | ショット数上限 + 推定コストの事前表示と対話確認 | F2, F5 |
 | L3 クライアント | デバイスは論理名（`garnet` 等）で指定し、ARN は設定ファイルから解決 | F3 |
-| L4 IAM | `braket:CreateQuantumTask` を高額デバイス ARN に対して **Deny**（§6） | F3, F6 |
-| L5 AWS Budgets (TF) | 月次予算 100 USD + SNS 通知（§7） | F2, F5 |
+| L4 IAM | `braket:CreateQuantumTask` を候補3機以外のQPUに対して **Deny**（§6） | F3, F6 |
+| L5 Braket Spending Limit (TF) | 3 機の合計上限 300 USD、初期値 0 USD | F2, F5 |
+| L6 AWS Budgets (TF) | 月次予算 100 USD + SNS 通知（§8） | F2, F5 |
 
 **L1〜L3 はクライアント側のため回避可能**（ユーザーが SDK を直接叩けば素通りする）。
-L4/L5 の AWS 側の防御を必ず併用すること。クライアント側のゲートは「事故防止」であって
+L4〜L6 の AWS 側の防御を必ず併用すること。クライアント側のゲートは「事故防止」であって
 「セキュリティ境界」ではない。
 
 ---
@@ -83,7 +84,7 @@ OpenQASM 3 のテキストを直接ハッシュしない。理由:
 
 | アサーション | 内容 |
 |---|---|
-| A1 | カウントレジスタの測定分布が理想分布と一致（TVD < 閾値） |
+| A1 | count + work レジスタの**同時分布**が理想分布と一致（TVD < 閾値） |
 | A2 | 測定結果から連分数展開で復元した位数が古典参照実装の真値と一致 |
 | A3 | 復元した位数から導いた因数が N を割り切る |
 | A4 | 使用量子ビット数が対象デバイスの上限以下 |
@@ -96,6 +97,10 @@ A3 の成否を N = 6 の量子部分の評価指標として使わない。
 **A3 について**: N = 15 でも A3 は必要条件にとどめる。連分数展開の保証窓は t に依存せず、
 一様乱数を返すデバイスでも 1 ショットあたり約 12% で因数が得られる（ADR-0001）。
 量子部分の評価は A1 で行う。
+
+Phase 1 の行列参照回路は A1〜A3 の基準値を作るが、`qpu_eligible = false` のため validated レコードを
+発行しない。QPU 互換回路では A4〜A5に加え、対象機へ変換した verbatim 回路を校正データ付き
+`LocalEmulator`で実行する。エミュレーションした回路と投入回路のハッシュが一致しなければ拒否する。
 
 ### 4.2 保存場所
 
@@ -138,7 +143,10 @@ $ make submit-qpu N=6 DEVICE=garnet SHOTS=1000
 [cost] device                    IQM Garnet (arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet)
 [cost] shots                     1000
 [cost] estimated                 $X.XX   (task $A + 1000 x $B)
-[cost] month-to-date             $Y.YY / budget $Z.ZZ
+[cost] spending limit            $L.LL
+[cost] current + queued          $U.UU
+[cost] remaining                 $R.RR
+[cost] active period             2026-..-.. → 2026-..-..
 
 Proceed? [y/N]
 ```
@@ -178,11 +186,16 @@ AWS が文書化しているデバイス制限は **`Deny` にデバイス ARN �
 > `braket:GetDevice` を Deny に含めないこと。含めると価格・校正データが読めなくなり、
 > L2 のコスト推定が機能しなくなる。
 
-### 6.2 これは許可リストではなく拒否リスト
+### 6.2 対象を 3 機に固定する
 
-IAM は Deny を Allow で打ち消せないため、許可リストは `Deny` + `NotResource` でしか
-書けず、この書き方は AWS に文書化されていない。
-**当面は拒否リストで運用し、新デバイス追加時にポリシー更新が必要**という弱点を受け入れる。
+QPU 候補は次の 3 機だけとする。
+
+- `arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet`
+- `arn:aws:braket:eu-north-1::device/qpu/iqm/Emerald`
+- `arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1`
+
+IAM の実測検証を行い、他の QPU に対する `CreateQuantumTask` が明示的に拒否されることを確認する。
+未知の新規プロバイダを拒否できない拒否リスト方式は廃止する。
 
 `aws iam simulate-principal-policy`（課金なし）で効果を検証できる:
 
@@ -196,23 +209,49 @@ make iam-verify ACCOUNT_ID=<id> PRINCIPAL=user/shor-braket
 |---|---|---|
 | 高額デバイスの使用 | ✅ Deny | — |
 | Hybrid Jobs の起動 | ✅ Deny | — |
-| **ショット数の桁間違い** | ❌ 条件キーが存在しない | L2 + AWS Budgets |
-| タスクの連続投入 | ❌ | L2 + AWS Budgets |
+| **ショット数の桁間違い** | ❌ 条件キーが存在しない | L2 + Spending Limit |
+| タスクの連続投入 | ❌ | L2 + Spending Limit |
 
 **ショット数を制限する IAM 条件キーは存在しない。**
-ショット数の暴走は AWS Budgets（L5）とクライアント側（L2）でしか止められない。
+ショット数自体は IAM で制限できないが、QPU の費用は Spending Limit でサービス側から止める。
 
 ---
 
-## 7. 予算: 月次 100 USD
+## 7. Braket Spending Limit: QPU 合計上限 300 USD
+
+Spending Limit は QPU デバイスごとのハードストップである。残額は
+`limit - current spend - queued spend` で計算され、投入タスクの概算が残額を超える場合は
+`CreateQuantumTask` が拒否される。
+
+Terraform では次を必須とする。
+
+- Garnet / Emerald / IBEX-Q1 の全機に作成し、初期値を各 0 USD にする
+- 変数で指定した 3 機の配分合計が 300 USD を超える場合、variable validation と
+  resource precondition の両方で apply を失敗させる
+- 300 USD の天井は変更可能な入力変数にしない
+- `prevent_destroy = true` で誤削除を防ぐ
+- `time_period` を実験単位で設定し、期間外の投入を拒否する
+- operator / monitor / execution role は `SearchSpendingLimits` だけ許可し、
+  Create / Update / Delete を明示的に拒否する
+
+Spending Limit は**デバイス単位**なので、各機を 300 USD にすると合計 900 USD になり得る。
+必ず3機の合計値を検証する。QPU投入前のクライアントも現在値と残額を読み、ローカルの概算と
+AWS側の残額の両方を表示する。
+
+Spending Limit は SV1 / DM1、S3、ノートブック、Hybrid Job の EC2 費用を対象にしない。
+これらは次節の AWS Budget とクライアント側確認で扱う。
+
+---
+
+## 8. 予算: 月次 100 USD
 
 月次予算を **100 USD** とする。許可デバイスでの 1000 ショット実行の消化率:
 
 | デバイス | 1 回あたり | 100 USD での回数 |
 |---|---|---|
-| Rigetti Cepheus-1-108Q | 約 $0.73 | 約 137 回 |
 | IQM Garnet | 約 $1.75 | 約 57 回 |
 | IQM Emerald | 約 $1.90 | 約 52 回 |
+| AQT IBEX-Q1 | 約 $23.80 | 約 4 回 |
 
 クライアント側の既定値:
 
@@ -223,7 +262,21 @@ AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SN
 
 ---
 
-## 8. 未決事項
+## 9. シミュレータとインフラの依存関係
+
+| 実行先 | AWSリソース | 課金 | Spending Limit |
+|---|---|---|---|
+| `LocalSimulator` | 不要 | 無料 | 対象外 |
+| `LocalEmulator` | 校正データ取得時だけ `GetDevice`。保存済みJSONなら不要 | ローカル実行は無料 | 対象外 |
+| SV1 / DM1 | simulator region のS3、IAM、Braket有効化 | 時間課金 | 対象外 |
+| QPU | QPU region のS3、IAM、Braket有効化、Spending Limit | task + shots | 対象 |
+
+したがって、`make sim` は Terraform を一切必要としないが、SV1 / DM1 に投入する前には Phase 3 の
+インフラ構築を終える必要がある。
+
+---
+
+## 10. 未決事項
 
 - [ ] TVD の閾値をいくつにするか（シミュレータは理想なので厳しくできるはず。統計誤差の扱い）
 - [ ] 深さ予算（トランスパイル後 2 qubit ゲート数の上限、または推定忠実度の下限）を

@@ -1,16 +1,12 @@
 # Environment setup
 
 .PHONY: setup
-setup:  ## 依存関係をインストールする (uv sync)
-	uv sync --all-groups
-
-.PHONY: lock
-lock:  ## 依存関係のロックファイルを更新する
-	uv lock --upgrade
+setup:  ## requirements.txt から Docker のローカル開発環境を構築する
+	$(COMPOSE) build local
 
 .PHONY: clean
 clean:  ## キャッシュと一時生成物を削除する (runs/validated は消さない)
-	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov .coverage
+	rm -rf .pytest_cache .ruff_cache .mypy_cache htmlcov runs/coverage .coverage
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
 
 .PHONY: clean-runs

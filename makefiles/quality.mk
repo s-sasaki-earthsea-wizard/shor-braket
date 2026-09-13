@@ -1,25 +1,27 @@
 # Lint, type check, test
 
 .PHONY: lint
-lint:  ## ruff で静的解析する
-	uv run ruff check src tests
+lint:  ## Docker 内の ruff で静的解析する
+	$(LOCAL_RUN) ruff check src tests
 
 .PHONY: format
-format:  ## ruff で整形する
-	uv run ruff format src tests
-	uv run ruff check --fix src tests
+format:  ## Docker 内の ruff で整形する
+	$(LOCAL_RUN) ruff check --fix src tests
+	$(LOCAL_RUN) ruff format src tests
 
 .PHONY: typecheck
-typecheck:  ## mypy で型検査する
-	uv run mypy src
+typecheck:  ## Docker 内の mypy で型検査する
+	$(LOCAL_RUN) mypy src
 
 .PHONY: test
-test:  ## pytest を実行する (aws マーカーは既定で除外)
-	uv run pytest
+test:  ## Docker 内で pytest を実行する (aws マーカーは既定で除外)
+	$(LOCAL_RUN) pytest -o cache_dir=/tmp/pytest-cache
 
 .PHONY: test-cov
-test-cov:  ## カバレッジ付きで pytest を実行する
-	uv run pytest --cov=shor_braket --cov-report=term-missing --cov-report=html
+test-cov:  ## Docker 内でカバレッジ付き pytest を実行する
+	$(LOCAL_RUN) pytest -o cache_dir=/tmp/pytest-cache \
+		--cov=shor_braket --cov-report=term-missing \
+		--cov-report=html:runs/coverage
 
 .PHONY: check
 check: lint typecheck test  ## lint + typecheck + test をまとめて実行する

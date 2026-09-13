@@ -13,20 +13,19 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | フェーズ | 内容 | 優先度 | 状態 |
 |---|---|---|---|
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
-| **Phase 1** | **Shor アルゴリズム実装（古典前処理 + 位数発見回路）** | **高** | ⬜ 未着手 |
-| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ⬜ 未着手 |
-| Phase 3 | Terraform による AWS リソース定義 | 低 | ⏸️ 中断中（IAM は構築済み・[issues](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues?q=is%3Aissue+is%3Aopen+label%3Apending)） |
+| **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
+| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証と結果保存を実装。QPU互換回路・投入ゲートは未着手 |
+| Phase 3 | Terraform による AWS リソース定義 | 次 | ⬜ IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
-**2026-09-13: AWS 側の構築を中断し、ローカルシミュレータに専念する。** IAM までは構築済み。
-残作業は [`pending` ラベルの issue](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues?q=is%3Aissue+is%3Aopen+label%3Apending) を参照。
+**2026-09-14: N=15のローカル参照実装が完成。** AWS側はIAMまで構築済みで、SV1 / DM1の前提となる
+S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)で追跡する。
+ローカルシミュレータは無料でAWS認証も不要なので、`make setup`だけで開発を始められる。
 
-**まずローカルシミュレータを動かす（Phase 1–2）。** AWS 側（Phase 3 以降）は設計だけ
-先に固めてあり、着手はローカルが通ってから。ローカルシミュレータは無料で AWS 認証も不要なので、
-`make setup` だけで開発を始められる。
-
-現時点では `src/` 配下は未実装。設計ドキュメントと骨組みのみ。
+現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
+連分数による位数復元、3 × 5 の導出、同時分布検証、JSON 結果保存を実装済み。
+この参照回路は密行列を使うため **QPU 投入不可**。QPU 互換回路と投入ゲートは別実装とする。
 
 ---
 
@@ -92,6 +91,7 @@ Shor の実機デモの多くは、位数 $r$ を**あらかじめ知った上�
 | クライアント | validated レコード必須 + 回路ハッシュ一致 | 未検証回路の誤投入 |
 | IAM (TF) | `braket:CreateQuantumTask` を特定デバイス ARN に限定 | 想定外の高額デバイス使用 |
 | AWS Budgets (TF) | 月次予算閾値 + SNS 通知 | 課金の暴走 |
+| Braket Spending Limit (TF) | 3 機の合計上限 300 USD、初期値 0 USD | QPU タスク作成時のハードストップ |
 | クライアント | ショット数上限・推定コストの事前表示と確認 | 桁間違いの投入 |
 
 回路ハッシュは OpenQASM 3 のテキストではなく **正規化した Braket IR** に対して取る（空白・命令順の揺れで hash が変わるのを防ぐ）。詳細は [`docs/03-execution-gate.md`](docs/03-execution-gate.md)。
@@ -116,6 +116,11 @@ shor-braket/
 ├── LICENSE                      # Apache License 2.0
 ├── .env.example                 # 環境変数テンプレート（.env は gitignore）
 ├── pyproject.toml
+├── .dockerignore                # ビルドに必要なファイルだけを送る
+├── docker/
+│   ├── Dockerfile               # Python 3.12 + Braket SDK + 開発ツール
+│   ├── docker-compose.yml       # ローカル実行環境
+│   └── requirements.txt         # Docker 内の依存バージョン
 ├── Makefile
 ├── makefiles/                   # 分割した make ターゲット
 ├── docs/
@@ -124,11 +129,11 @@ shor-braket/
 │   ├── 03-execution-gate.md          # 実行ゲートの仕様
 │   ├── 04-devices-and-cost.md        # Braket デバイスと課金
 │   └── adr/                          # Architecture Decision Records
-├── src/shor_braket/             # 実装（未着手）
+├── src/shor_braket/             # 行列参照回路、古典後処理、CLI、ローカル runner
 ├── tests/                       # pytest
 ├── infra/
 │   ├── iam/                     # IAM ポリシー JSON（Deny ガードレール込み）
-│   └── terraform/               # AWS リソース定義（未着手）
+│   └── terraform/               # IAM 実装済み。S3 / Budgets / Spending Limit は未実装
 └── runs/
     ├── validated/               # 検証済みレコード（コミット対象）
     └── raw/                     # 生の測定結果（gitignore）
@@ -140,12 +145,66 @@ shor-braket/
 
 ### Phase 1–2（ローカルのみ・AWS 不要）
 
+ホスト側に必要なのは **Docker Engine / Docker Desktop、Docker Compose v2、make**。
+Docker を起動してから、リポジトリのルートで実行する。ホストの Python 環境は不要。
+
 ```bash
-make setup     # 依存関係のインストール
-make sim N=15  # ローカルシミュレータ（無料・認証不要）
+make setup                      # requirements.txt から Docker イメージを構築
+make sim-smoke                   # Bell 回路を 1000 shots で実行
+make sim-smoke SHOTS=256         # ショット数を指定
+make sim                         # N=15 を因数分解し、過程を SVG/PNG/HTML で可視化
+make sim SHOTS=256               # shots を変更して実行
+make qpu-costs SHOTS=1000        # 将来の QPU 候補 3 機の概算を表示（AWS 接続なし）
+make check                      # ruff + mypy + pytest
+make test-cov                   # カバレッジ（runs/coverage/index.html に出力）
+make shell                      # 同じ環境の bash に入る（exit で終了）
 ```
 
-ローカルシミュレータは AWS へのリクエストを一切発生させない。**ここまでは認証設定不要。**
+`sim-smoke` は 2 qubit の Bell 状態を測定し、`00` / `11` の測定回数を JSON で表示する。
+測定回数の内訳は実行ごとに変わる。テストでは shots=0 の厳密な確率が
+`[0.5, 0, 0, 0.5]` となることも確認する。
+これは環境の動作確認であり、Shor の位数発見は `make sim` で行う。結果は
+`runs/raw/local-n15-a7-*/result.json` に保存される。解析実行（shots=0）で回路の理想同時分布を検証し、
+指定 shots のサンプリング結果と将来の QPU 費用概算も同じレポートに残す。
+
+同じrunディレクトリにはMatplotlibで生成した `walkthrough.html`、`walkthrough.md` と
+`figures/` が作られる。HTMLをブラウザで開くと、次の順で `15 = 3 × 5` に至る過程を追える。
+
+1. Shor全体の古典・量子パイプライン
+2. count/work registerと量子回路の役割
+3. モジュラー累乗列の周期
+4. Hadamard、モジュラー累乗、逆QFT後の同時確率
+5. 理想的な測定ピークと有限shotsの標本頻度
+6. 連分数、位数候補、2本のgcd計算による因数復元
+
+SVGは拡大しても数式やラベルが鮮明な教材用、PNGはスライドなどへ貼りやすい形式だ。
+各図は `result.json` 内のそのrunの値から生成される。`--no-visualize` を指定すると図の生成だけを省略できる。
+
+`make sim-all` は N=15 に加えて N=6 の縮退ケースも実行する。N=6 では位数2を復元できるが、
+$a^{r/2} \equiv -1 \pmod 6$ のため量子部分から非自明な因数は得られないことを確認する。
+
+ローカル実行用コンテナはネットワークを無効化して動かす。**AWS 認証や `.env` は不要。**
+Docker イメージの初回ビルドと依存更新時にはネット接続が必要。
+
+`src/`、`tests/`、`runs/` と設定ファイルを `/workspace` 配下へ個別に bind mount する。
+これによりコード変更は即座に反映され、整形結果・カバレッジ・シミュレーション結果は
+ホストに残る。AWS 資格情報やリポジトリ全体はコンテナへ渡さない。
+make はホストの UID/GID でコンテナを実行し、各コマンドの終了時にコンテナを削除する。
+
+Python ベースイメージは digest で固定し、実行時・テスト・静的解析を含む依存関係は
+`docker/requirements.txt` に固定バージョンで定義する。依存関係を変更するときは
+requirements と、パッケージの実行時依存を表す `pyproject.toml` を必要に応じて更新する。
+
+```bash
+# Edit docker/requirements.txt and pyproject.toml when needed.
+make setup
+make check
+```
+
+ベースイメージを更新する場合は `docker/Dockerfile` のタグと digest を合わせて更新する。
+Compose の残ったコンテナやネットワークは `make docker-down` で片付けられる。
+
+参考: [Braket のローカルシミュレータ](https://docs.aws.amazon.com/braket/latest/developerguide/braket-send-to-local-simulator.html)。
 
 ### Phase 3 以降（AWS）
 
@@ -207,12 +266,13 @@ make iam-render    # .env の値でプレースホルダを展開
 make iam-verify    # IAM ガードレールの効果をポリシーシミュレータで検証（課金なし）
 ```
 
-### 予定インタフェース（Phase 1 以降）
+### 実行インタフェース
 
 ```bash
 # 1. ローカルシミュレータで検証（無料・AWS 不要）
 make sim N=15
-make sim N=6
+make sim N=6 A=5 T=1
+make qpu-costs SHOTS=1000
 
 # 2. 検証済みレコードの確認
 make validated
@@ -231,17 +291,15 @@ make submit-qpu N=6 DEVICE=garnet SHOTS=1000
 **2026-09-07 実測**。詳細と注意点は [`docs/04-devices-and-cost.md`](docs/04-devices-and-cost.md)。
 
 Braket の QPU は **タスクあたり定額 + ショットあたり従量** の二段課金。
-ONLINE のゲート型 QPU と 1000 ショットあたりの概算:
+採用する3機と1000ショットあたりの概算:
 
 | 論理名 | デバイス | qubit | 全結合 | feed-forward | ショット単価 | 1000 shots 概算 |
 |---|---|---|---|---|---|---|
-| `cepheus` | Rigetti Cepheus-1-108Q | 107 | ✗ | ✗ | $0.000425 | **約 $0.73** |
-| `garnet` | IQM Garnet | 20 | ✗ | **✓** | $0.00145 | 約 $1.75 |
+| `garnet` | IQM Garnet | 20 | ✗ | **✓** | $0.00145 | **約 $1.75** |
 | `emerald` | IQM Emerald | 54 | ✗ | **✓** | $0.0016 | 約 $1.90 |
 | `ibex` | AQT IBEX Q1 | 12 | ✓ | ✗ | $0.0235 | 約 $23.80 |
-| `forte-ent` | IonQ Forte Enterprise 1 | 36 | ✓ | ✗ | $0.08 | **約 $80.30** |
 
-> ⚠️ **ショット単価の差は 188 倍。** デバイス名の打ち間違いが二桁の課金差になる。
+> ⚠️ 3機の中でも1000 shotsの概算には13倍以上の差がある。
 > かつての主力機（IonQ Aria、Rigetti Ankaa-3 など）は**すべて RETIRED** 済み。
 > 実行前に `make devices` で必ず現況を確認すること。
 
@@ -251,18 +309,16 @@ N = 6 なら合計 4 qubit で済み、回路が大幅に浅くなる。
 
 ### 予算とガードレール
 
-月次予算は **100 USD**。許可デバイスなら Garnet で約 57 回、Cepheus で約 137 回の実行に相当する。
+月次AWS Budgetは **100 USD**。QPU候補はGarnet / Emerald / IBEX-Q1に固定する。
+Braket Spending Limitは全機0 USDで作成し、実験時だけTerraformで配分する。3機合計が300 USDを
+超える設定はapplyを失敗させる（[ADR-0003](docs/adr/0003-reference-circuit-and-cost-guardrails.md)）。
 
-**IonQ Forte Enterprise 1 は 1 回で月次予算の 8 割を消費する**ため、AQT IBEX Q1 と併せて
-IAM の `Deny` で拒否する（[`infra/iam/`](infra/iam/)）。
-
-Braket の IAM リソースタイプは `quantum-task` のみで、**デバイスは `Allow` の `Resource` で
-絞れない**。AWS が文書化しているのは `Deny` にデバイス ARN を書く方式だけなので、
-ガードレールは拒否リストになる。設計根拠と検証手順は
-[`infra/iam/README.md`](infra/iam/README.md)。
+現在のIAMガードレールは拒否リスト方式で実装済み。Phase 3では3機以外を拒否する方式へ改訂し、
+IAM Policy Simulatorで実測してから適用する。設計根拠と検証手順は
+[`docs/03-execution-gate.md`](docs/03-execution-gate.md)と[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)。
 
 > **ショット数を制限する IAM 条件キーは存在しない。**
-> 桁間違いはクライアント側の `--max-cost`（既定 10 USD/回）と AWS Budgets でしか止められない。
+> QPU費用はクライアント側の確認とBraket Spending Limit、その他のAWS費用はAWS Budgetsで守る。
 
 ---
 

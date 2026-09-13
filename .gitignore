@@ -49,6 +49,7 @@ aws-config
 # validated/ はコミット対象（監査性のため）。raw の測定結果のみ除外する
 runs/raw/*
 !runs/raw/.gitkeep
+runs/coverage/
 runs/**/*.png
 runs/**/*.npz
 

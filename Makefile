@@ -10,12 +10,12 @@ export
 endif
 
 # ---- Default parameters ----
-N      ?= 6
-A      ?=
-T      ?=
+N      ?= 15
+A      ?= 7
+T      ?= 8
 SHOTS  ?= 1000
 DEVICE ?= $(if $(BRAKET_DEFAULT_DEVICE),$(BRAKET_DEFAULT_DEVICE),sv1)
-ORACLE ?= generic-repeated
+ORACLE ?= matrix-reference
 
 export N A T SHOTS DEVICE ORACLE
 
@@ -29,6 +29,7 @@ define notimpl
 	@exit 1
 endef
 
+include makefiles/docker.mk
 include makefiles/setup.mk
 include makefiles/quality.mk
 include makefiles/sim.mk
@@ -49,6 +50,6 @@ help:  ## このヘルプを表示する
 ifneq (,$(wildcard .env))
 	@echo "  .env:  読み込み済み (AWS_ACCOUNT_ID / BRAKET_RESULTS_BUCKET などは .env から取得)"
 else
-	@echo "  .env:  未作成 — cp .env.example .env して値を埋めること"
+	@echo "  .env:  未作成 (ローカル開発には不要。AWS 利用時は cp .env.example .env)"
 endif
 	@echo ""

@@ -78,21 +78,18 @@ aws braket get-device --device-arn <arn> --region <region>
 
 ---
 
-## 3. 1000 ショットあたりのコスト比較
+## 3. 採用する3機と1000ショットあたりのコスト
 
 タスク定額を $0.30 と仮定した概算。
 
 | デバイス | ショット分 | 合計（概算） | 最安との比 |
 |---|---|---|---|
-| Rigetti Cepheus-1-108Q | $0.43 | **約 $0.73** | 1.0× |
-| IQM Garnet | $1.45 | 約 $1.75 | 2.4× |
-| IQM Emerald | $1.60 | 約 $1.90 | 2.6× |
-| AQT IBEX Q1 | $23.50 | 約 $23.80 | 33× |
-| IonQ Forte Enterprise 1 | $80.00 | **約 $80.30** | **110×** |
+| IQM Garnet | $1.45 | **約 $1.75** | 1.0× |
+| IQM Emerald | $1.60 | 約 $1.90 | 1.1× |
+| AQT IBEX Q1 | $23.50 | 約 $23.80 | 13.6× |
 
-> **単価差が 188 倍（$0.000425 vs $0.08）ある。**
-> デバイス選択がコストを支配する。デバイス名の打ち間違いが二桁の課金差になるため、
-> 実行ゲート L3（論理名 → ARN のマップ）と L4（IAM の ARN 限定）は必須。
+この3機だけをQPU候補とする。デバイス選択がコストを支配するため、実行ゲート L3
+（論理名 → ARN の固定マップ）と L4（IAM の ARN 限定）は必須。
 
 ---
 
@@ -165,14 +162,19 @@ device.properties.provider   # デバイス固有の校正データ
 ## 5. 推奨する実行段階
 
 ```
-1. LocalSimulator   無料      アルゴリズムの正しさ（実行ゲート A1–A3）
-2. DM1              $0.075/分  ノイズモデル込みの耐性評価（任意）
-3. SV1              $0.075/分  Braket マネージド環境での動作確認（A4–A5）
-4. QPU              $0.73〜    実機実行
+1. LocalSimulator   無料      行列参照回路とQPU論理回路の正しさ
+2. LocalEmulator    無料      対象機のネイティブゲート・接続・校正ノイズを検証
+3. SV1              $0.075/分  Braket マネージド環境、IAM、S3の動作確認
+4. DM1              $0.075/分  任意の追加ノイズ試験
+5. QPU              $1.75〜    実機実行
 ```
 
-**SV1 を必ず挟むこと。** 「ローカルでは動くが Braket 上で落ちる」類の問題を
-1 ドル未満で潰せる。DM1 を挟むかは未決（`docs/03-execution-gate.md` の未決事項参照）。
+QPU互換回路には **LocalEmulatorを必ず挟む**。対象機へ変換したverbatim回路そのものを校正データと
+照合し、同じ回路ハッシュだけをQPU投入可能にする。SV1も最初のQPU投入前に通し、AWS経路の問題を
+低額で潰す。DM1を追加で挟むかは未決。
+
+LocalSimulator / LocalEmulator はDocker内で動くためBraket利用料は発生しない。SV1 / DM1はAWS上の
+タスクなので、実行前にeu-west-2の結果用S3、IAM、Braket有効化をTerraformと手動手順で用意する。
 
 ---
 
@@ -181,13 +183,14 @@ device.properties.provider   # デバイス固有の校正データ
 | 手段 | 定義場所 | 効果 |
 |---|---|---|
 | AWS Budgets（月次閾値 + SNS） | Terraform | 事後通知。止められないが気づける |
+| Braket Spending Limit | Terraform | QPUの残額を超えるタスク作成をサービス側で拒否 |
 | IAM でデバイス ARN を限定 | Terraform | 高単価機種の誤用を事前に防ぐ |
 | クライアントの `--max-cost` | Python | 桁間違いを事前に防ぐ |
 | 対話確認プロンプト | Python | 誤操作を防ぐ |
 
-**AWS Budgets は通知であって遮断ではない。** Budgets Actions で IAM ポリシーを
-自動アタッチして遮断する構成も可能だが、本プロジェクトの規模では過剰。
-まずは通知 + IAM の ARN 限定で運用する。
+**AWS Budgets は通知であって遮断ではない。** QPUはBraket Spending Limitで止める。
+Spending Limitはデバイス単位なので、3機の配分合計をTerraformで300 USD以下に制限し、初期値は
+全機0 USDとする。SV1 / DM1はSpending Limit対象外なので、クライアント確認とAWS Budgetで守る。
 
 ---
 
@@ -203,10 +206,11 @@ device.properties.provider   # デバイス固有の校正データ
 
 ## 8. 未決事項
 
-- [x] ~~第一候補デバイスの確定~~ → **IQM Garnet**（feed-forward 対応 + 低単価）を推奨。
-      コスト最優先なら Rigetti Cepheus、回路深さ最優先なら AQT IBEX Q1
-- [ ] タスク定額（$0.30/task と推定）の一次情報での確認
-- [ ] 月次予算の閾値をいくらに設定するか
-- [ ] Garnet を使う場合、S3 バケットも eu-north-1 に置くか（クロスリージョン転送料の回避）
+- [x] ~~対象QPU~~ → IQM Garnet / Emerald、AQT IBEX-Q1 の3機
+- [x] ~~第一候補~~ → IQM Garnet
+- [x] ~~タスク定額~~ → $0.30/task
+- [x] ~~月次予算~~ → 100 USD
+- [x] ~~QPU Spending Limit~~ → 初期値0 USD、3機合計の設定上限300 USD
+- [x] ~~S3リージョン~~ → QPUはeu-north-1、SV1/DM1はeu-west-2
 - [ ] 反復的 QPE（feed-forward）を実装するか、通常 QPE のみにするか
 - [ ] ノイズあり検証に DM1 を挟むか
