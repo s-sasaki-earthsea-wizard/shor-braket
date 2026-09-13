@@ -440,6 +440,16 @@ make bootstrap-admin CHECK=1     # 現状と変更予定を表示するだけ
 make bootstrap-admin             # 手順 1。MFA の QR とコード入力あり
 ```
 
+**使う資格は `BOOTSTRAP_PROFILE` で決まる（既定 `default`）。** Makefile は `.env` の全変数を
+子プロセスに export するため、何もしないと `AWS_PROFILE=shor-braket-ro` が漏れてくる。
+しかしそのプロファイルは Terraform がユーザーを作るまで存在せず、そもそも IAM を作る権限もない。
+この 2 つのターゲットだけは `BOOTSTRAP_PROFILE` で資格を明示的に固定する。
+
+```bash
+make bootstrap-admin BOOTSTRAP_PROFILE=default   # bootstrap 前: 既存の管理者資格
+make retire-user BOOTSTRAP_PROFILE=admin RETIRE_USER=...   # bootstrap 後
+```
+
 **このスクリプトを対話シェルに貼り付けないこと。** `set -u` は VS Code のシェル統合フック
 （`__vsc_preexec: RPROMPT: parameter not set`）を壊し、`set -e` は最初の非ゼロ終了でシェルを閉じる。
 `bash` に渡して実行する。

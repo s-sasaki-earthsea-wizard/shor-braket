@@ -11,6 +11,14 @@ MONITOR_PRINCIPAL ?= $(IAM_MONITOR_PRINCIPAL)
 # Terraform runs under the MFA-backed admin profile. Never root.
 TF_PROFILE ?= $(AWS_PROFILE_ADMIN)
 
+# The one-time bootstrap and retire-user need a credential that ALREADY has IAM
+# admin rights. That is not the project's AWS_PROFILE: the Makefile exports every
+# .env value, so AWS_PROFILE=shor-braket-ro would leak into these targets, and
+# that profile does not exist until Terraform has created the users.
+# Before the bootstrap this is the account's existing admin credential; after it,
+# pass BOOTSTRAP_PROFILE=admin.
+BOOTSTRAP_PROFILE ?= default
+
 # Refuse to run Terraform with root credentials, whatever the profile is called.
 define refuse_root
 	@arn=$$(AWS_PROFILE=$(TF_PROFILE) aws sts get-caller-identity --query Arn --output text 2>/dev/null); \
@@ -33,8 +41,8 @@ define require_env
 endef
 
 .PHONY: bootstrap-admin
-bootstrap-admin:  ## ⚠️ 一度きり: 管理者を MFA 必須の assume role にする (CHECK=1 で確認のみ)
-	@bash infra/iam/bootstrap-admin.sh $(if $(CHECK),--check,)
+bootstrap-admin:  ## ⚠️ 一度きり: 管理者を MFA 必須の assume role にする (CHECK=1 で確認のみ、BOOTSTRAP_PROFILE で資格を指定)
+	@AWS_PROFILE=$(BOOTSTRAP_PROFILE) bash infra/iam/bootstrap-admin.sh $(if $(CHECK),--check,)
 
 .PHONY: retire-user
 # RETIRE_USER, not USER: the shell exports USER as the login name, so a bare
@@ -46,7 +54,7 @@ retire-user:  ## ⚠️ 不要になった IAM ユーザーを削除する (例:
 		echo "  例: make retire-user RETIRE_USER=terraform-admin"; \
 		echo ""; \
 		exit 1; }
-	@bash infra/iam/bootstrap-admin.sh --retire "$(RETIRE_USER)"
+	@AWS_PROFILE=$(BOOTSTRAP_PROFILE) bash infra/iam/bootstrap-admin.sh --retire "$(RETIRE_USER)"
 
 .PHONY: iam-lint
 iam-lint:  ## IAM ポリシー JSON の構文を検証する

@@ -53,8 +53,19 @@ die()   { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
 command -v aws >/dev/null     || die "aws CLI not found."
 command -v python3 >/dev/null || die "python3 not found (used to write credentials without exposing secrets in argv)."
 
-ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)" \
-  || die "Cannot resolve caller identity. Check your credentials."
+# This script runs BEFORE the project's own profiles exist, so it must not
+# inherit AWS_PROFILE from .env. `make bootstrap-admin` pins it via
+# BOOTSTRAP_PROFILE; a direct invocation uses whatever is already in the
+# environment.
+if ! ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)"; then
+  printf '\n  ERROR: cannot resolve caller identity with profile %s\n\n' "'${AWS_PROFILE:-<default>}'" >&2
+  printf '  This step needs a credential that already has IAM admin rights.\n' >&2
+  printf '  The project profiles (shor-braket-ro / -exec) do not exist yet and\n' >&2
+  printf '  cannot be used here. Pick the credential explicitly:\n\n' >&2
+  printf '      make bootstrap-admin BOOTSTRAP_PROFILE=<profile>\n\n' >&2
+  printf '  Available profiles: %s\n\n' "$(aws configure list-profiles 2>/dev/null | tr '\n' ' ')" >&2
+  exit 1
+fi
 CALLER_ARN="$(aws sts get-caller-identity --query Arn --output text)"
 redact() { sed -e "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" -e 's/AKIA[A-Z0-9]\{16\}/<AKID>/g'; }
 
@@ -129,6 +140,7 @@ CHECK_ONLY=0
 [ "${1:-}" = "--check" ] && CHECK_ONLY=1
 
 head_ "Preflight"
+say "profile : ${AWS_PROFILE:-<default>}"
 say "caller  : $(printf '%s' "$CALLER_ARN" | redact)"
 say "account : <ACCOUNT_ID>"
 
