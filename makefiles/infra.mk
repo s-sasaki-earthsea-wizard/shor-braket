@@ -30,6 +30,24 @@ define refuse_root
 	esac
 endef
 
+# The Terraform AWS provider cannot prompt for an MFA code: it has no
+# AssumeRoleTokenProvider, so a profile carrying mfa_serial fails with
+# "assume role with MFA enabled, but AssumeRoleTokenProvider session option not set".
+# The AWS CLI can prompt, and caches the assumed-role session, so resolve the
+# profile to temporary credentials there and hand those to Terraform.
+# AWS_PROFILE is unset afterwards so the provider cannot re-attempt the assume.
+define tf_run
+	@creds="$$(aws configure export-credentials --profile $(TF_PROFILE) --format env)" || { \
+		echo ""; \
+		echo "  Could not resolve credentials for profile $(TF_PROFILE)."; \
+		echo "  Check it with: aws sts get-caller-identity --profile $(TF_PROFILE)"; \
+		echo ""; \
+		exit 1; }; \
+	eval "$$creds"; \
+	unset AWS_PROFILE; \
+	terraform -chdir=$(TF_DIR) $(1)
+endef
+
 define require_env
 	@test -n "$($(1))" || { \
 		echo ""; \
@@ -166,16 +184,16 @@ tf-validate:  ## Terraform の構文を検証する
 tf-plan:  ## Terraform の変更計画を表示する (AWS_PROFILE_ADMIN を使う。root は拒否)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-plan)
 	$(refuse_root)
-	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) plan -out=tfplan
+	$(call tf_run,plan -out=tfplan)
 
 .PHONY: tf-apply
 tf-apply:  ## Terraform の変更を適用する (tf-plan の出力を使う。AWS_PROFILE_ADMIN)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-apply)
 	$(refuse_root)
-	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) apply tfplan
+	$(call tf_run,apply tfplan)
 
 .PHONY: tf-destroy
 tf-destroy:  ## Terraform で作成したリソースを破棄する (⚠️ S3 の結果も消える)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-destroy)
 	$(refuse_root)
-	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) destroy
+	$(call tf_run,destroy)

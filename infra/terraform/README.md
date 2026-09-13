@@ -32,7 +32,8 @@ AWS リソース定義。**IAM プリンシパルは実装済み（2026-09-13）
 前提: `../iam/README.md` §11 の bootstrap が済んでいて、`.env` に `AWS_PROFILE_ADMIN` がある。
 
 ```bash
-cp terraform.tfvars.example terraform.tfvars   # 値を埋める。gitignore 対象
+cp terraform.tfvars.example terraform.tfvars
+nano infra/terraform/terraform.tfvars          # 値を埋める。gitignore 対象
 make tf-init
 make tf-plan        # AWS_PROFILE_ADMIN で実行。MFA コードを聞かれる。root なら拒否される
 make tf-apply
@@ -41,6 +42,28 @@ terraform -chdir=infra/terraform output -raw aws_config_snippet   # ~/.aws/confi
 
 `tfvars` の `aws_account_id` を設定しておくと、別アカウントのプロファイルで apply しようとしたときに
 `precondition` が作成前に止める。ロール名やユーザー名を変える場合も、JSON 側の参照とずれていれば同様に止まる。
+
+**テンプレートのまま（`000000000000`）だと plan がこのガードで止まる。** 実際の値を埋めること。
+
+### MFA と Terraform
+
+AWS provider は **MFA コードを対話的に要求できない**。`mfa_serial` を持つプロファイルを
+そのまま渡すと、こう落ちる。
+
+```
+Error: assume role with MFA enabled, but AssumeRoleTokenProvider session option not set.
+```
+
+provider に `AssumeRoleTokenProvider` を差し込む仕組みがないため。一方 **AWS CLI は MFA を聞けて、
+assume したセッションをキャッシュする**。そこで `make tf-plan` などは
+
+1. `aws configure export-credentials --profile $(TF_PROFILE) --format env` で
+   プロファイルを一時資格（`AWS_ACCESS_KEY_ID` / `..._SECRET_...` / `AWS_SESSION_TOKEN`）に解決し
+2. それを環境変数として Terraform に渡す。`AWS_PROFILE` は unset して provider が
+   assume をやり直さないようにする
+
+という手順を踏む。**MFA コードを聞かれるのは CLI 側**で、セッションが生きている 1 時間は聞かれない。
+`aws configure export-credentials` は AWS CLI v2.12 以降が必要（実測 v2.34.4 で動作）。
 
 ---
 
