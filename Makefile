@@ -10,12 +10,12 @@ export
 endif
 
 # ---- Default parameters ----
-N      ?= 6
-A      ?=
-T      ?=
+N      ?= 15
+A      ?= 7
+T      ?= 8
 SHOTS  ?= 1000
 DEVICE ?= $(if $(BRAKET_DEFAULT_DEVICE),$(BRAKET_DEFAULT_DEVICE),sv1)
-ORACLE ?= generic-repeated
+ORACLE ?= matrix-reference
 
 export N A T SHOTS DEVICE ORACLE
 

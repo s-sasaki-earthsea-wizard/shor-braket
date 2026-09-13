@@ -1,7 +1,7 @@
 [project]
 name = "shor-braket"
 version = "0.1.0"
-description = "Shor's algorithm for N=6 on local simulator and Amazon Braket, gated by simulator validation"
+description = "Shor's algorithm for N=15 on a local simulator and Amazon Braket"
 readme = "README.md"
 requires-python = ">=3.11,<3.13"
 license = "Apache-2.0"
@@ -45,7 +45,7 @@ convention = "google"
 "tests/*" = ["D", "ANN"]
 
 [tool.mypy]
-python_version = "3.11"
+python_version = "3.12"
 strict = true
 warn_unreachable = true
 
