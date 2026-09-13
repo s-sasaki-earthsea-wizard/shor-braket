@@ -62,6 +62,18 @@ endef
 bootstrap-admin:  ## ⚠️ 一度きり: 管理者を MFA 必須の assume role にする (CHECK=1 で確認のみ、BOOTSTRAP_PROFILE で資格を指定)
 	@AWS_PROFILE=$(BOOTSTRAP_PROFILE) bash infra/iam/bootstrap-admin.sh $(if $(CHECK),--check,)
 
+.PHONY: issue-creds
+issue-creds:  ## tf-apply 後: IAM ユーザーのアクセスキーを発行しプロファイルに書く (例: make issue-creds IAM_USER=shor-braket-operator PROFILE_NAME=shor-braket-ro MFA=1)
+	@test -n "$(IAM_USER)" && test -n "$(PROFILE_NAME)" || { \
+		echo ""; \
+		echo "  IAM_USER と PROFILE_NAME を指定すること。"; \
+		echo "  operator: make issue-creds IAM_USER=shor-braket-operator PROFILE_NAME=shor-braket-ro MFA=1"; \
+		echo "  monitor : make issue-creds IAM_USER=shor-braket-monitor PROFILE_NAME=shor-braket-monitor"; \
+		echo ""; \
+		exit 1; }
+	@ADMIN_PROFILE=$(TF_PROFILE) REGION=$(AWS_REGION) \
+		bash infra/iam/issue-user-credentials.sh "$(IAM_USER)" "$(PROFILE_NAME)" $(if $(MFA),--mfa,)
+
 .PHONY: retire-user
 # RETIRE_USER, not USER: the shell exports USER as the login name, so a bare
 # `make retire-user` would silently target it.
