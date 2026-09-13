@@ -1,0 +1,62 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.python-version.local
+
+# ---- Tooling caches ----
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+uv.lock.bak
+
+# ---- Terraform ----
+.terraform/
+.terraform.lock.hcl
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+.terraformrc
+terraform.rc
+tfplan
+*.tfplan
+
+# ---- AWS / secrets ----
+# アカウント ID とバケット名を埋め込んだ IAM ポリシーは公開しない
+infra/iam/rendered/
+.env
+.env.*
+!.env.example
+*.pem
+credentials
+aws-config
+
+# ---- Braket run artifacts ----
+# validated/ はコミット対象（監査性のため）。raw の測定結果のみ除外する
+runs/raw/*
+!runs/raw/.gitkeep
+runs/**/*.png
+runs/**/*.npz
+
+# ---- Session notes (versioning 対象外) ----
+.claude-notes/
+
+# ---- OS / editor ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
