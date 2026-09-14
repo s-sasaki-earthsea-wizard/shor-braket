@@ -314,26 +314,35 @@ AWS が新しい高額プロバイダを追加したら、ポリシーを更新�
 IAM ポリシーシミュレータで評価する。実際に量子タスクを投げる必要はない。
 
 ```bash
-make iam-verify     # .env の AWS_ACCOUNT_ID / IAM_PRINCIPAL を使う
+make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 ```
 
-代表的な 5 デバイスについて `EvalDecision` を並べて表示する。
-実行ロールでは IQM / Rigetti が `allowed`、IonQ / AQT が `explicitDeny` になれば期待通り。
-**AQT ロールを対象にすると逆になる**（AQT が `allowed`、IQM が `explicitDeny`）。
-ADR-0004 でタグゲートを廃したので、タグ付きコンテキストでの評価は不要になった。
+実体は `infra/iam/verify-guardrails.sh`。**14 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
+1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
-`.env` に `IAM_MONITOR_PRINCIPAL` を設定してあれば、監視ユーザーについても評価し、
-MFA ありのコンテキストでも `CreateQuantumTask` と `sts:AssumeRole` が `implicitDeny` になることを確認する。
-これが「監視用は実行権限を持たない」の実証。
+| 節 | プリンシパル | 内容 |
+|---|---|---|
+| 1 | `ShorBraketExecutionRole` | IQM 2 機と Rigetti が `allowed`、**AQT と IonQ が `explicitDeny`** |
+| 2 | `ShorBraketAqtRole` | **AQT が `allowed`、IQM 2 機が `explicitDeny`**（1 の鏡像） |
+| 3 | 両ロール | MFA なしはすべて `explicitDeny` |
+| 4 | `shor-braket-operator` | 長期キーから AQT は `explicitDeny`。両ロールへの assume は `allowed` |
+| 5 | `shor-braket-monitor` | 実行も assume も `implicitDeny`（`.env` に `IAM_MONITOR_PRINCIPAL` があるときのみ） |
+
+プリンシパル名は環境変数で上書きできる（`PRINCIPAL` / `IAM_AQT_PRINCIPAL` /
+`IAM_OPERATOR_PRINCIPAL` / `IAM_MONITOR_PRINCIPAL`）。
+
+節 1 と節 2 が鏡像になっているのが ADR-0004 の要点。以前は「AQT をタグで開ける」検証をしていたが、
+その構文自体を廃止したので**タグ付きコンテキストでの評価は無くなった**。
 
 シミュレータの呼び出し自体には `iam:SimulatePrincipalPolicy` と
 `iam:GetContextKeysForPrincipalPolicy` が要る。readonly ポリシーの `IamPolicySimulation` に含めてある。
 
 > **注意**: `simulate-principal-policy` は既定で MFA なしのコンテキストで評価する。
-> MFA 必須の Deny があるため、実行ロールを対象にすると全部 `explicitDeny` になる。
-> MFA ありの状態を再現するには `--context-entries
-> ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean`
-> を付ける。
+> MFA 必須の Deny があるため、ロールを対象にすると全部 `explicitDeny` になる。
+> スクリプトは MFA ありのコンテキストキーを明示的に渡している。
+
+AWS 側の呼び出しが失敗した行は `error` として FAIL 扱いになり、残りの評価は続行する。
+資格情報やプロファイルの問題と、ポリシーの問題を切り分けやすくするため。
 
 個別に確認する場合:
 
