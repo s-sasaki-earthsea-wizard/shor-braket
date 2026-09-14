@@ -17,7 +17,7 @@ AWS リソースは Terraform 管理。
 Terraform で構築済みで、root アクセスキーも廃止済み。残りは GitHub issue #1–#5 に記録してある。
 **実機実行が現実味を帯びるまで再開しない。** 再開の入口は issue #1。
 
-issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と LocalEmulator 実行ゲート）。
+issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。次に着手するのは issue #8（validated レコードと投入ゲート）。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
@@ -33,7 +33,10 @@ issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と Loc
 （実機は MCM の結果を返さない）。**結果: t=2 では λ は標準 QPE と ±0.03 以内で差が無い**（Emerald constant 0.70 vs 0.73、
 Garnet constant 0.53 vs 0.54）。SWAP は Fredkin の三角形要求で決まり count register の数に依存しないため。
 TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近似式 Σ√(p(1−p)/(2πn))）とサポート質量由来の λ（不偏）も
-数値化した。閾値・B の上限・DM1 不要の**決定は issue #7 で Syota さんが下す**。その後に issue #8 の validated レコードと投入ゲート。
+数値化した。**issue #7 の主要な未決事項（反復 QPE・深さ予算・TVD 閾値・実機の合否・DM1）は決着済み**で、下の「決定事項」表と
+`analysis/distribution.py` の `noiseless_verdict` / `noisy_verdict` が最終形。残る未決はタグ集合、validated レコードの有効期限、
+`--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。**次は issue #8 の validated レコードと投入ゲート。**
+SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（upstream 報告は本題の実験の後）。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
