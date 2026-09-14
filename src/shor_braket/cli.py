@@ -5,11 +5,13 @@
 
 import json
 import sys
+from decimal import Decimal
 from pathlib import Path
 from typing import Annotated, Any
 
 import typer
 from braket.circuits import Circuit
+from braket.circuits.serialization import IRType
 
 from shor_braket.cost import QPU_CANDIDATES, qpu_cost_estimates
 from shor_braket.devices import (
@@ -19,12 +21,24 @@ from shor_braket.devices import (
     snapshot_from_get_device,
     summarize_snapshot,
 )
+from shor_braket.gate.circuit_hash import CANONICAL_FORM_VERSION, circuit_hash
+from shor_braket.gate.record import (
+    DEFAULT_RECORD_DIR,
+    DEFAULT_VALIDITY_DAYS,
+    iter_records,
+    record_path,
+)
 from shor_braket.quantum.n15 import ORACLE_MODES
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
 from shor_braket.runner.n15 import run_n15_emulation
 from shor_braket.runner.n15_iterative import DEFAULT_SWEEP_SHOTS, run_iterative_emulation
 from shor_braket.runner.reference import run_reference_simulation
+from shor_braket.runner.submit import (
+    SUBMISSION_BLOCKED_REASON,
+    build_submission_circuit,
+    plan_submission,
+)
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -241,6 +255,15 @@ def emulate_n15(
         bool,
         typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
     ] = True,
+    issue_records: Annotated[
+        bool,
+        typer.Option(
+            "--issue-records/--no-issue-records",
+            help="Write a validated record for every configuration that passes.",
+        ),
+    ] = True,
+    record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+    validity_days: Annotated[int, typer.Option(min=1)] = DEFAULT_VALIDITY_DAYS,
 ) -> None:
     """Emulate the N = 15 swap-network circuit on calibration-backed local emulators (offline)."""
     keys = list(QPU_CANDIDATES) if device == "all" else [device]
@@ -266,6 +289,9 @@ def emulate_n15(
         output_dir=output_dir,
         snapshot_dir=snapshot_dir,
         visualize=visualize,
+        issue_records=issue_records,
+        record_dir=record_dir,
+        validity_days=validity_days,
     )
     _echo_json(
         {
@@ -369,3 +395,109 @@ def emulate_n15_iterative(
             "qpu_gate": report["qpu_gate"],
         }
     )
+
+
+@app.command("circuit")
+def circuit(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex")],
+    oracle: Annotated[
+        str, typer.Option("--oracle", help="generic-constant | generic-repeated")
+    ] = "generic-repeated",
+    count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 2,
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    show_qasm: Annotated[
+        bool, typer.Option("--qasm/--no-qasm", help="Print the OpenQASM source as well.")
+    ] = False,
+) -> None:
+    """Build the verbatim program for one device and print its hash; nothing is executed."""
+    try:
+        program = build_submission_circuit(
+            device_key=device,
+            oracle_mode=oracle,
+            count_qubit_count=count_qubits,
+            snapshot_dir=snapshot_dir,
+        )
+    except (ValueError, FileNotFoundError) as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    payload: dict[str, Any] = {
+        "device": device,
+        "oracle_mode": oracle,
+        "count_qubits": count_qubits,
+        "circuit_hash": circuit_hash(program),
+        "canonical_form_version": CANONICAL_FORM_VERSION,
+        "instruction_count": len(program.instructions),
+        "qubits": sorted(int(q) for q in program.qubits),
+        "has_validated_record": record_path(circuit_hash(program)).is_file(),
+    }
+    if show_qasm:
+        payload["openqasm"] = str(program.to_ir(ir_type=IRType.OPENQASM).source)
+    _echo_json(payload)
+
+
+@app.command("records")
+def records(
+    record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+) -> None:
+    """List the validated records on disk."""
+    rows = [
+        {
+            "circuit_hash": record.circuit_hash,
+            "device": record.device_key,
+            "oracle_mode": record.oracle_mode,
+            "issued_at": record.issued_at,
+            "expires_at": record.expires_at,
+            "expired": record.is_expired(),
+            "signal_fraction": record.emulation.get("verdict", {}).get("signal_fraction_exact"),
+            "calibration_updated_at": record.snapshot.get("calibration_updated_at"),
+        }
+        for record in iter_records(record_dir)
+    ]
+    _echo_json({"record_dir": str(record_dir), "count": len(rows), "records": rows})
+
+
+@app.command("submit-qpu")
+def submit_qpu(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex")],
+    shots: Annotated[int, typer.Option(min=1)],
+    oracle: Annotated[
+        str, typer.Option("--oracle", help="generic-constant | generic-repeated")
+    ] = "generic-repeated",
+    count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 2,
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+    max_cost: Annotated[
+        str | None, typer.Option("--max-cost", help="Per-task ceiling in USD.")
+    ] = None,
+    yes: Annotated[
+        bool, typer.Option("--yes", help="Skip the prompt. Requires --max-cost.")
+    ] = False,
+) -> None:
+    """Run the full submission preflight for a real QPU task (no task is created)."""
+    if yes and max_cost is None:
+        typer.echo("error: --yes requires an explicit --max-cost", err=True)
+        raise typer.Exit(code=2)
+    try:
+        plan = plan_submission(
+            device_key=device,
+            oracle_mode=oracle,
+            shots=shots,
+            count_qubit_count=count_qubits,
+            snapshot_dir=snapshot_dir,
+            record_dir=record_dir,
+            max_cost_usd=Decimal(max_cost) if max_cost is not None else None,
+        )
+    except (ValueError, ArithmeticError, FileNotFoundError) as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+    typer.echo(plan.report.render())
+    if not plan.allowed:
+        typer.echo("\nrefused: the preflight did not pass; nothing was submitted.", err=True)
+        raise typer.Exit(code=1)
+    if not yes and not typer.confirm("\nProceed?", default=False):
+        typer.echo("cancelled.")
+        raise typer.Exit(code=1)
+    typer.echo(f"\nnot implemented: {SUBMISSION_BLOCKED_REASON}", err=True)
+    raise typer.Exit(code=3)

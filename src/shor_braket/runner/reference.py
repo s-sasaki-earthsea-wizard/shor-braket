@@ -3,7 +3,6 @@
 
 """Run and validate the local-only matrix reference circuit."""
 
-import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -13,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from braket.circuits.serialization import IRType
 from numpy.typing import NDArray
 
 from shor_braket.analysis.distribution import (
@@ -30,6 +28,7 @@ from shor_braket.classical.postprocess import (
     recover_orders,
 )
 from shor_braket.cost import qpu_cost_estimates
+from shor_braket.gate.circuit_hash import circuit_hash
 from shor_braket.quantum.reference import ReferenceCircuit, build_reference_circuit
 from shor_braket.runner.local import run_local
 from shor_braket.visualization import generate_walkthrough
@@ -38,8 +37,13 @@ EXACT_TVD_TOLERANCE = EXACT_TVD_LIMIT
 
 
 def _circuit_hash(reference: ReferenceCircuit) -> str:
-    program = reference.circuit.to_ir(ir_type=IRType.OPENQASM)
-    return f"sha256:{hashlib.sha256(program.source.encode()).hexdigest()}"
+    """Hash the normalized IR of the reference circuit.
+
+    The reference circuit is never eligible for a QPU, so this hash is a change detector for the
+    local artifacts rather than a submission key. It uses the same normalization as the QPU
+    circuits so that the two are comparable.
+    """
+    return circuit_hash(reference.circuit)
 
 
 def _support(

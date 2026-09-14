@@ -15,9 +15,12 @@ A      ?= 7
 T      ?= 8
 SHOTS  ?= 1000
 DEVICE ?= $(if $(BRAKET_DEFAULT_DEVICE),$(BRAKET_DEFAULT_DEVICE),sv1)
-ORACLE ?= matrix-reference
+ORACLE ?= generic-repeated
 
-export N A T SHOTS DEVICE ORACLE
+# Recorded in validated records so an audit can find the code the emulation ran on.
+GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
+
+export N A T SHOTS DEVICE ORACLE GIT_COMMIT
 
 # Guard for targets whose implementation has not landed yet.
 # Fails loudly instead of silently doing nothing.

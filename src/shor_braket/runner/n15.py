@@ -12,7 +12,6 @@ factoring claim: the swap-network oracle is specific to N = 15 and ``t = 2`` use
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -29,6 +28,7 @@ from numpy.typing import NDArray
 
 from shor_braket.analysis.distribution import (
     expected_joint_probabilities,
+    noisy_verdict,
     sampling_floor,
     total_variation_distance,
 )
@@ -36,6 +36,13 @@ from shor_braket.classical.postprocess import recover_orders
 from shor_braket.cost import QPU_CANDIDATES, qpu_cost_estimates
 from shor_braket.devices.calibration import CalibrationSummary, summarize_snapshot
 from shor_braket.devices.snapshot import DEFAULT_SNAPSHOT_DIR, DeviceSnapshot, load_snapshot
+from shor_braket.gate.circuit_hash import circuit_hash
+from shor_braket.gate.record import (
+    DEFAULT_RECORD_DIR,
+    DEFAULT_VALIDITY_DAYS,
+    issue_record,
+    save_record,
+)
 from shor_braket.quantum.compile import compile_to_native
 from shor_braket.quantum.n15 import (
     MODULUS,
@@ -171,8 +178,8 @@ def order_recovery_exact(
 
 
 def _circuit_hash(program: Circuit) -> tuple[str, str]:
-    source = program.to_ir(ir_type=IRType.OPENQASM).source
-    return f"sha256:{hashlib.sha256(source.encode()).hexdigest()}", str(source)
+    """Hash the normalized IR and return the OpenQASM text for the record's audit trail."""
+    return circuit_hash(program), str(program.to_ir(ir_type=IRType.OPENQASM).source)
 
 
 def _count_marginal(vector: NDArray[np.float64]) -> NDArray[np.float64]:
@@ -321,6 +328,12 @@ def emulate_n15_configuration(
                 "order_recovery_rate_sampled": recovery["rate"],
                 "order_recovery_baseline_uniform_y": recovery["baseline_uniform_y"],
                 "sampling_floor_estimate": sampling_floor(exact_noisy, shots),
+                "verdict": noisy_verdict(
+                    signal_fraction_exact=1.0 - exact_tvd / tvd_ideal_uniform,
+                    support_mass_sampled=float(sampled[support].sum()),
+                    support_fraction=float(support.mean()),
+                    shots=shots,
+                ),
             },
             "distributions": {
                 "expected": expected.tolist(),
@@ -337,6 +350,133 @@ def emulate_n15_configuration(
     return result
 
 
+def issue_records_for_report(
+    report: Mapping[str, Any],
+    *,
+    artifact: str | None = None,
+    record_dir: Path = DEFAULT_RECORD_DIR,
+    validity_days: int = DEFAULT_VALIDITY_DAYS,
+) -> dict[str, Any]:
+    """Issue one validated record per configuration that cleared local validation.
+
+    A configuration qualifies when the emulator's verbatim validators accepted the program and
+    the exact signal fraction cleared the pass line decided in issue #7. Everything else is
+    listed with the reason it was skipped, so a refusal is visible rather than silent.
+
+    Args:
+        report: A report produced by :func:`run_n15_emulation`.
+        artifact: Path of the run directory the measurements live in.
+        record_dir: Where records are written.
+        validity_days: How long an issued record stays valid.
+
+    Returns:
+        A summary suitable for the report's ``qpu_gate`` field.
+    """
+    issued: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    for name, configuration in report["configurations"].items():
+        device_key = str(configuration["device"])
+        device = report["devices"][device_key]
+        validation = configuration.get("validation", {})
+        verdict = configuration.get("metrics", {}).get("verdict", {})
+        if not validation.get("accepted"):
+            skipped.append(
+                {
+                    "configuration": name,
+                    "reason": f"emulator rejected the circuit: {validation.get('error_type')}",
+                }
+            )
+            continue
+        if not verdict.get("passed"):
+            skipped.append(
+                {
+                    "configuration": name,
+                    "reason": (
+                        "signal fraction "
+                        f"{verdict.get('signal_fraction_exact')} is below the pass line "
+                        f"{verdict.get('pass_line')}"
+                    ),
+                }
+            )
+            continue
+
+        record = issue_record(
+            circuit_hash_value=configuration["circuit_hash"],
+            device={"key": device_key, "arn": device["arn"], "name": device["name"]},
+            snapshot=dict(device["snapshot"]),
+            problem={
+                "modulus": MODULUS,
+                "base": configuration["base"],
+                "count_qubits": configuration["count_qubit_count"],
+                "work_qubits": WORK_QUBIT_COUNT,
+                "classical_order": 4,
+                "n_specific_decomposition": configuration["n_specific_decomposition"],
+            },
+            oracle_mode=str(configuration["oracle_mode"]),
+            circuit={
+                "gate_family": configuration["gate_family"],
+                "physical_qubits": configuration["layout"]["physical_qubits"],
+                "used_qubits": configuration["layout"]["used_qubits"],
+                "roles": configuration["layout"]["roles"],
+                "swap_count": configuration["layout"]["swap_count"],
+                "error_budget": configuration["layout"]["error_budget"],
+                "native_two_qubit": configuration["gates"]["native_two_qubit"],
+                "native_depth": configuration["gates"]["native_depth"],
+                "instruction_count": configuration["gates"]["instruction_count"],
+                "register_order_physical": configuration["register_order_physical"],
+            },
+            emulation={
+                "class": EXECUTION_CLASS,
+                "backend": report["execution"]["backend"],
+                "shots": configuration["shots"],
+                "validation": validation,
+                "verdict": verdict,
+                "metrics": {
+                    key: configuration["metrics"][key]
+                    for key in (
+                        "exact_tvd",
+                        "sampled_tvd",
+                        "signal_fraction_exact",
+                        "signal_fraction_sampled",
+                        "ideal_support_mass_exact",
+                        "ideal_support_mass_sampled",
+                    )
+                },
+                "ideal_check_tvd": configuration["ideal_check_tvd"],
+            },
+            environment=dict(report["environment"]),
+            artifact=artifact,
+            validity_days=validity_days,
+            notes={
+                "claim": report["problem"]["claim"],
+                "t_rationale": configuration["t_rationale"],
+            },
+        )
+        path = save_record(record, record_dir)
+        issued.append(
+            {
+                "configuration": name,
+                "circuit_hash": record.circuit_hash,
+                "path": str(path),
+                "expires_at": record.expires_at,
+            }
+        )
+
+    return {
+        "validated_records_issued": len(issued),
+        "issued": issued,
+        "skipped": skipped,
+        "record_dir": str(record_dir),
+        "qpu_eligible": bool(issued),
+        "reason": (
+            "Records were issued for the configurations that passed; submission still requires "
+            "the preflight in shor_braket.gate.preflight and the AWS guardrails of issue #3."
+            if issued
+            else "No configuration cleared local validation, so no record was issued."
+        ),
+    }
+
+
 def run_n15_emulation(
     *,
     device_keys: Sequence[str],
@@ -347,8 +487,29 @@ def run_n15_emulation(
     snapshot_dir: Path = DEFAULT_SNAPSHOT_DIR,
     visualize: bool = True,
     max_permutations: int | None = None,
+    issue_records: bool = True,
+    record_dir: Path = DEFAULT_RECORD_DIR,
+    validity_days: int = DEFAULT_VALIDITY_DAYS,
 ) -> dict[str, Any]:
-    """Emulate every requested device / oracle combination and write one artifact directory."""
+    """Emulate every requested device / oracle combination and write one artifact directory.
+
+    Args:
+        device_keys: Logical names of the devices to emulate.
+        oracle_modes: Oracle modes to compare.
+        shots: Shots of the sampled emulator run.
+        count_qubit_count: Size of the count register.
+        output_dir: Where the run artifact directory is created; ``None`` writes nothing.
+        snapshot_dir: Where committed calibration snapshots live.
+        visualize: Render figures and a Markdown report.
+        max_permutations: Cap on the layout search, for fast tests.
+        issue_records: Issue a validated record for every configuration that the emulator
+            accepted and whose signal fraction cleared the pass line.
+        record_dir: Where validated records are written.
+        validity_days: How long an issued record stays valid.
+
+    Returns:
+        The report, including ``qpu_gate`` describing which records were issued.
+    """
     unknown = [key for key in device_keys if key not in QPU_CANDIDATES]
     if unknown:
         raise ValueError(f"unknown device keys {unknown}; expected {sorted(QPU_CANDIDATES)}")
@@ -427,6 +588,7 @@ def run_n15_emulation(
         },
     }
 
+    artifact_path: str | None = None
     if output_dir is not None:
         artifact_dir = output_dir / f"n15-emulation-{created_at:%Y%m%dT%H%M%S%fZ}"
         artifact_dir.mkdir(parents=True, exist_ok=False)
@@ -437,12 +599,21 @@ def run_n15_emulation(
             path = circuit_dir / f"{name.replace('/', '-')}.qasm"
             path.write_text(source, encoding="utf-8")
             configuration["openqasm_path"] = str(path.relative_to(artifact_dir))
-        report["artifact_path"] = str(artifact_dir / "result.json")
+        artifact_path = str(artifact_dir / "result.json")
+        report["artifact_path"] = artifact_path
         if visualize:
             report["visualizations"] = generate_n15_figures(report, artifact_dir)
             (artifact_dir / "report.md").write_text(n15_markdown(report), "utf-8")
             report["report_markdown"] = "report.md"
         (artifact_dir / "result.json").write_text(
             json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
+
+    if issue_records:
+        report["qpu_gate"] = issue_records_for_report(
+            report,
+            artifact=artifact_path,
+            record_dir=record_dir,
+            validity_days=validity_days,
         )
     return report
