@@ -14,7 +14,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 |---|---|---|---|
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
-| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）まで実装。validated レコードと投入ゲートは未着手 |
+| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward、Garnet / Emerald でエミュレーション）・TVD の標本床の解析まで実装。validated レコードと投入ゲートは未着手 |
 | Phase 3 | Terraform による AWS リソース定義 | 次 | ⬜ IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
@@ -173,6 +173,7 @@ make emulate DEVICE=garnet       # 校正スナップショットから LocalEmu
 make emulate-all                 # 3 機の比較図と report.md を生成（オフライン）
 make device-info DEVICE=garnet   # スナップショットの qubit 数・忠実度・価格・実行窓を表示
 make emulate-n15                 # N=15 の QPU 互換回路を 3 機 × 2 oracle でエミュレーションし信号残存を比較
+make emulate-n15-iterative       # N=15 の反復 QPE (feed-forward, count 1 qubit) を標準 QPE と並べて比較し、TVD の標本床も出す
 make check                      # ruff + mypy + pytest
 make test-cov                   # カバレッジ（runs/coverage/index.html に出力）
 make shell                      # 同じ環境の bash に入る（exit で終了）
@@ -306,6 +307,10 @@ make emulate-all
 
 # 1c. N=15 の QPU 互換回路（swap network, t=2）を 3 機でエミュレーション（無料・オフライン）
 make emulate-n15
+
+# 1d. 反復 QPE（measure_ff / cc_prx、count 1 qubit）を標準 QPE と並べて比較（無料・オフライン）
+make emulate-n15-iterative
+make emulate-n15-iterative N15_DEVICE=garnet N15_ORACLE=generic-constant N15I_SHOTS=20000
 
 # 2. 検証済みレコードの確認
 make validated

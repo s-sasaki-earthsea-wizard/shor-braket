@@ -157,6 +157,23 @@ work register (n)   |1> ──[U^(2^k)]─────────────�
 **通常 QPE を基本実装とし、反復的 QPE を追加実装として比較する**方針とする。
 どちらを使ったかは実行記録に残す。
 
+**実装（2026-09-14、`quantum/n15_iterative.py`、`runner/n15_iterative.py`、`make emulate-n15-iterative`）**
+
+- count qubit 1 個を `measure_ff` → `cc_prx(π, 0)` の能動リセットで再利用する。位相補正は
+  `cc_prx(π, 0)` と `cc_prx(π, α/2)` の対（合成すると Rz(α)）で入れる。逆 QFT の制御位相が無くなり、
+  N = 15 t = 2 の論理 2 qubit ゲートは 46 → 44（`generic-constant`）
+- **実機は中間測定の結果を返さない**（開発者ガイド）。各ラウンドの結果を `cc_prx(π, 0)` で記録用 qubit に
+  コピーして最終測定で読む。記録用 qubit はカプラ不要なので、ルータは核となる 5 qubit を配置した後に
+  読み出し忠実度の高い空き qubit を割り当てる（`choose_layout(..., detached=...)`）
+- 厳密分布は deferred measurement 変換（`measure_ff` → 補助 qubit への CNOT、`cc_prx` → 補助 qubit を
+  制御とする 2 qubit ユニタリ）で `braket_dm` から解析的に求める。標本は feed-forward 回路そのものを
+  shot ごとに走らせて取る
+- SDK 1.127.0 のエミュレータのノイズモデルは `measure_ff` / `cc_prx` にノイズを付けない。同じ校正値から
+  読み出し bit-flip（測定直前の状態反転）と 1 qubit depolarizing を手で足す
+- 開発者ガイドの制約のうち、フィードバックキーの一意性・`cc_prx` が `measure_ff` の後に来ること・制御元が
+  1 qubit であることは `feed_forward_violations` で検査する。**同一 qubit グループ内**の制約はグループが
+  画像でしか公開されておらずオフラインでは検査できない
+
 ---
 
 ## 3. 実行フロー
