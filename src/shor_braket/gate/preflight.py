@@ -42,6 +42,7 @@ from shor_braket.gate.spending import (
     SpendingLimitStatus,
     no_spending_limit_lookup,
 )
+from shor_braket.gate.tags import build_tags
 
 DEFAULT_MAX_COST_USD = Decimal("10")
 DENSE_MATRIX_GATES = frozenset({"unitary"})
@@ -81,6 +82,7 @@ class PreflightReport:
     cost: dict[str, Any] = field(default_factory=dict)
     spending_limit: dict[str, Any] | None = None
     record: ValidatedRecord | None = None
+    tags: dict[str, str] = field(default_factory=dict)
 
     @property
     def passed(self) -> bool:
@@ -101,6 +103,7 @@ class PreflightReport:
             "passed": self.passed,
             "checks": [check.to_dict() for check in self.checks],
             "cost": self.cost,
+            "tags": self.tags,
             "spending_limit": self.spending_limit,
             "validated_record": {
                 "issued_at": self.record.issued_at,
@@ -125,6 +128,9 @@ class PreflightReport:
         lines.append(f"[cost] shots                    {self.shots}")
         lines.append(f"[cost] estimated                {self.cost.get('estimated_cost_usd')} USD")
         lines.append(f"[cost] per-task ceiling         {self.cost.get('max_cost_usd')} USD")
+        if self.tags:
+            rendered_tags = " ".join(f"{key}={value}" for key, value in self.tags.items())
+            lines.append(f"[cost] tags                     {rendered_tags}")
         if self.spending_limit is None:
             lines.append("[cost] spending limit           unavailable (issue #3)")
         else:
@@ -310,6 +316,7 @@ def preflight(
     max_cost_usd: Decimal | None = None,
     spending_lookup: SpendingLimitLookup = no_spending_limit_lookup,
     now: datetime | None = None,
+    campaign: str | None = None,
 ) -> PreflightReport:
     """Run every client-side check that stands between a circuit and a paid task.
 
@@ -325,6 +332,8 @@ def preflight(
         spending_lookup: How to read the service-side spending limit. The default reports no
             knowledge, which blocks.
         now: Point in time for the freshness checks; defaults to the current UTC time.
+        campaign: Optional campaign tag for cost grouping. It grants nothing: AQT is reached by
+            assuming a different role, not by setting a tag (ADR-0004).
 
     Returns:
         The report. Inspect :attr:`PreflightReport.passed` before submitting anything.
@@ -391,6 +400,25 @@ def preflight(
         )
         report.checks.extend(
             _identity_checks(record, device_arn=candidate.arn, snapshot=snapshot, now=moment)
+        )
+
+    if record is not None:
+        try:
+            report.tags = build_tags(oracle_mode=record.oracle_mode, campaign=campaign)
+        except ValueError as error:
+            report.checks.append(Check(name="tags", passed=False, detail=str(error)))
+
+    if device_key == "ibex":
+        report.checks.append(
+            Check(
+                name="aqt needs its own role",
+                passed=True,
+                blocking=False,
+                detail=(
+                    "submit with AWS_PROFILE_AQT; the everyday execution role denies AQT "
+                    "unconditionally (ADR-0004)"
+                ),
+            )
         )
 
     shots_ok = candidate.min_shots <= shots <= candidate.max_shots

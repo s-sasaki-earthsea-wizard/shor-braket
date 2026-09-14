@@ -35,6 +35,7 @@ from shor_braket.gate.record import (
     save_record,
 )
 from shor_braket.gate.spending import SpendingLimitStatus, spending_limit_from_api
+from shor_braket.gate.tags import build_tags
 from shor_braket.quantum.native import verbatim
 from shor_braket.quantum.reference import build_reference_circuit
 from shor_braket.runner.submit import SubmissionPlan, plan_submission, submit
@@ -507,3 +508,66 @@ def test_the_submission_rebuild_hashes_to_what_the_emulator_validated(tmp_path, 
         max_permutations=1,
     )
     assert circuit_hash(rebuilt) == emulated["circuit_hash"]
+
+
+# --- tags -------------------------------------------------------------------------------
+
+
+def test_project_and_oracle_are_always_tagged():
+    tags = build_tags(oracle_mode="generic-constant")
+    assert tags == {"project": "shor-braket", "oracle": "generic-constant"}
+
+
+def test_a_campaign_is_added_only_when_it_has_content():
+    assert "campaign" not in build_tags(oracle_mode="generic-constant")
+    assert "campaign" not in build_tags(oracle_mode="generic-constant", campaign="")
+    assert "campaign" not in build_tags(oracle_mode="generic-constant", campaign="   ")
+    tagged = build_tags(oracle_mode="generic-constant", campaign="device-comparison")
+    assert tagged["campaign"] == "device-comparison"
+
+
+def test_the_oracle_can_never_be_dropped():
+    with pytest.raises(ValueError, match="oracle_mode must not be empty"):
+        build_tags(oracle_mode="  ")
+
+
+def test_tag_values_aws_would_reject_fail_before_submission():
+    with pytest.raises(ValueError, match="characters AWS rejects"):
+        build_tags(oracle_mode="generic-constant", campaign="bad,value")
+    with pytest.raises(ValueError, match="AWS allows"):
+        build_tags(oracle_mode="generic-constant", campaign="x" * 257)
+
+
+def test_the_preflight_shows_the_tags_it_would_attach(tmp_path, garnet_snapshot):
+    program = _native_program()
+    save_record(_record_for(program, garnet_snapshot), tmp_path)
+    report = _preflight(program, garnet_snapshot, tmp_path, campaign="device-comparison")
+    assert report.tags == {
+        "project": "shor-braket",
+        "oracle": "generic-constant",
+        "campaign": "device-comparison",
+    }
+    assert "oracle=generic-constant" in report.render()
+
+
+def test_a_campaign_tag_does_not_open_anything(tmp_path, garnet_snapshot):
+    """The tag is accounting only; it must not turn a refusal into a pass (ADR-0004)."""
+    program = _native_program()
+    save_record(_record_for(program, garnet_snapshot, passed=False), tmp_path)
+    report = _preflight(program, garnet_snapshot, tmp_path, campaign="device-comparison")
+    assert not report.passed
+
+
+def test_ibex_is_flagged_as_needing_its_own_role(tmp_path, ibex_snapshot):
+    report = preflight(
+        _native_program(),
+        device_key="ibex",
+        shots=200,
+        snapshot=ibex_snapshot,
+        record_dir=tmp_path,
+        spending_lookup=lambda arn: _stub_limit(),
+        now=NOW,
+    )
+    note = next(check for check in report.checks if check.name == "aqt needs its own role")
+    assert not note.blocking
+    assert "AWS_PROFILE_AQT" in note.detail

@@ -470,6 +470,14 @@ def submit_qpu(
     max_cost: Annotated[
         str | None, typer.Option("--max-cost", help="Per-task ceiling in USD.")
     ] = None,
+    campaign: Annotated[
+        str | None,
+        typer.Option(
+            "--campaign",
+            envvar="BRAKET_CAMPAIGN",
+            help="Cost-grouping tag. Grants no access; AQT needs its own role.",
+        ),
+    ] = None,
     yes: Annotated[
         bool, typer.Option("--yes", help="Skip the prompt. Requires --max-cost.")
     ] = False,
@@ -487,6 +495,7 @@ def submit_qpu(
             snapshot_dir=snapshot_dir,
             record_dir=record_dir,
             max_cost_usd=Decimal(max_cost) if max_cost is not None else None,
+            campaign=campaign,
         )
     except (ValueError, ArithmeticError, FileNotFoundError) as error:
         typer.echo(f"error: {error}", err=True)
