@@ -19,10 +19,10 @@ Terraform で構築済みで、root アクセスキーも廃止済み。残り�
 
 issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。**issue #8（validated レコードと投入ゲート）も
 2026-09-14 に実装完了**（PR #16。マージされたら #8 を閉じる）。実タスク投入は **issue #17** に分離した。
-残る未決はタグ集合、レコードの有効期限の日数、`--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。
+**2026-09-15: タグ集合と SV1 の要否も決着した**（ADR-0004）。残る未決はレコードの有効期限の日数、
+`--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。
 **次の作業は AWS 側（issue #4 → #1 → #2 → #3）。** #4 のコスト配分タグは有効化後のデータにしか効かないので
-最初のタスクより前に必須。**タグ集合と「SV1 を経由するか」は #3 に着手する前に決める**
-（後者は eu-west-2 バケットの要否に直結する）。
+最初のタスクより前に必須。有効化するタグは `project` / `oracle` / `campaign` の 3 つ。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
@@ -61,7 +61,7 @@ docs/03 §3.2 の初稿を訂正した）。レコードの失効判定で実質
 `src/shor_braket/runner/local.py` はローカル実行のみを担い、validated レコードは発行しない。
 `make sim` / `sim-all` は N=15 / N=6 の行列参照回路を実行して教材を生成する。
 `make validate-n15` がレコードを発行し、`make submit-qpu` が投入ゲートを回す（タスクは作らない）。
-`make submit-sv1` / `task-status` / `report` は未実装ガードを維持する。
+`make task-status` / `report` は未実装ガードを維持する（issue #17）。`submit-sv1` は廃止した。
 
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
@@ -204,11 +204,20 @@ Co-Authored-By: Claude <noreply@anthropic.com>
   `quantum-task` のみで、デバイスは `Allow` の `Resource` で絞れない（AWS 公式仕様）
 - MFA 判定は `Bool` ではなく **`BoolIfExists`** を使う。長期アクセスキーでは
   `aws:MultiFactorAuthPresent` キー自体が存在せず、`Bool` だと Deny が発動しない
-- **AQT はタグで開ける Deny。** リクエストタグ `campaign=device-comparison` が無いと
-  `CreateQuantumTask` を拒否する。1 タスクで予算超過しうる機種（IonQ 等）は無条件 Deny のまま
-  （`infra/iam/README.md` §6）
+- **AQT は専用ロールに分ける**（2026-09-15、ADR-0004）。以前はリクエストタグ
+  `campaign=device-comparison` で Deny を開けていたが、**`aws:RequestTag` は呼び出し側が自分の
+  リクエストに乗せる値**なので、実行ロールは自分に掛かった Deny を自分で外せた。境界にならない。
+  現在は `ShorBraketExecutionRole` が AQT を無条件 Deny、`ShorBraketAqtRole` が IQM を無条件 Deny する。
+  高額機に触る行為は独立した `AssumeRole` として CloudTrail に残る。1 タスクで予算超過しうる機種
+  （IonQ 等）は共通ガードレールで無条件 Deny のまま（`infra/iam/README.md` §6）
+- **タグは認可に使わない。** `project` と `oracle` を常時、`campaign` を実行ごとに任意で付ける。
+  用途はコスト配分と監査のみ。ロールが能力を分け、タグは会計を束ねる
+- **SV1 / DM1 は使わない**（2026-09-15、ADR-0004）。**SV1 は verbatim 回路を実行できない**ため、
+  validated レコードを発行した回路そのものを投げられない。AWS 経路の確認は Garnet に 10 ショット
+  （0.3145 USD）を投げて行う。**結果バケットは eu-north-1 の 1 つだけ。** eu-west-2 は使わない
 - **ショット数を制限する IAM 条件キーは存在しない。** クライアント側 + AWS Budgets で守る
-- Terraform で管理するもの: S3（結果保存）、IAM、AWS Budgets + SNS、CloudWatch ロググループ
+- Terraform で管理するもの: S3（結果保存、**eu-north-1 の 1 つだけ**）、IAM、AWS Budgets + SNS、
+  CloudWatch ロググループ
 - Terraform で管理しないもの: 量子タスク（使い捨ての実行単位であり状態管理対象として不適切）
 - **Terraform ステートはローカル管理**（`backend.tf` を置かない）
 - Braket の初回有効化（コンソールでの利用規約同意）は Terraform 不可。手動手順として記録する
@@ -224,8 +233,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | Terraform ステート | ローカル管理 | `docs/adr/0002-*.md` |
 | 月次予算 | **100 USD** | `docs/adr/0002-*.md` |
 | 第一候補デバイス | IQM Garnet（feed-forward 対応 + 低単価） | `docs/04-devices-and-cost.md` |
-| AQT IBEX Q1 の扱い | タグゲート付き Deny（`campaign=device-comparison` で開く） | `docs/adr/0002-*.md` |
-| IAM プリンシパル | 監視ユーザー / 操作ユーザー / 実行ロール(MFA 必須) の 3 分割 | `docs/adr/0002-*.md` |
+| AQT IBEX Q1 の扱い | **専用ロール `ShorBraketAqtRole`**（2026-09-15 にタグゲートから変更） | `docs/adr/0004-*.md` |
+| IAM プリンシパル | 監視ユーザー / 操作ユーザー / 実行ロール / AQT ロール の 4 分割（ロールは MFA 必須） | `docs/adr/0002-*.md`、`docs/adr/0004-*.md` |
+| マネージドシミュレータ | SV1 / DM1 とも使わない。SV1 は verbatim 非対応 | `docs/adr/0004-*.md` |
+| リージョン | eu-north-1 のみ。結果バケットも 1 つ | `docs/adr/0004-*.md` |
+| タグ | `project` / `oracle` を常時、`campaign` は任意。**認可には使わない** | `docs/adr/0004-*.md` |
 | 反復 QPE | 比較軸として残すのみ。既定は標準 QPE（t=2 では λ が動かない） | `quantum/n15_iterative.py` docstring、issue #7 |
 | 投入ゲートの判定 | エミュレーションの厳密 λ ≥ 0.5 で判定。誤り予算 B は目安として表示 | `docs/03-execution-gate.md` §4.1、issue #7 |
 | 信号の検出 | 標本のサポート質量由来 λ が標準誤差の 3 倍を超えれば「信号あり」を別に記録。位数復元率は合否に使わない | `analysis/distribution.py` |
@@ -245,5 +257,5 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
 | 3 | Terraform による AWS リソース定義 | **高** | 🚧 **次はここ**。IAM は構築済み（2026-09-13）。残りは issue #4 → #1 → #2 → #3 |
-| 4 | SV1 実行 | 低 | ⬜ issue #17。SV1 を経由するか自体が未決 |
+| 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ issue #17 |

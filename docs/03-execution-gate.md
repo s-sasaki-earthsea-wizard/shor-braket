@@ -27,7 +27,7 @@
 | L1 クライアント | validated レコード必須 + 回路ハッシュ一致 | F1, F4 |
 | L2 クライアント | ショット数上限 + 推定コストの事前表示と対話確認 | F2, F5 |
 | L3 クライアント | デバイスは論理名（`garnet` 等）で指定し、ARN は設定ファイルから解決 | F3 |
-| L4 IAM | `braket:CreateQuantumTask` を候補3機以外のQPUに対して **Deny**（§6） | F3, F6 |
+| L4 IAM | 候補3機以外のQPUに **Deny**。AQT は専用ロールに分離（§6、ADR-0004） | F3, F6 |
 | L5 Braket Spending Limit (TF) | 3 機の合計上限 300 USD、初期値 0 USD | F2, F5 |
 | L6 AWS Budgets (TF) | 月次予算 100 USD + SNS 通知（§8） | F2, F5 |
 
@@ -249,7 +249,21 @@ AWS が文書化しているデバイス制限は **`Deny` にデバイス ARN �
 > `braket:GetDevice` を Deny に含めないこと。含めると価格・校正データが読めなくなり、
 > L2 のコスト推定が機能しなくなる。
 
-### 6.2 対象を 3 機に固定する
+### 6.2 AQT は専用ロールに分ける（ADR-0004）
+
+以前はリクエストタグ `campaign=device-comparison` で AQT の Deny を開けていた。
+**`aws:RequestTag` は呼び出し側が自分のリクエストに乗せる値**なので、実行ロールは自分に掛かった
+Deny を自分で外せる。境界ではなく操作上の段差だった。
+
+| プリンシパル | AQT | IQM |
+|---|---|---|
+| `ShorBraketExecutionRole` | **無条件 Deny** | Allow |
+| `ShorBraketAqtRole` | Allow | **無条件 Deny** |
+
+`DEVICE=ibex` の打ち間違いは通常ロールで `AccessDenied` になる。高額機に触る行為は
+独立した `AssumeRole` として CloudTrail に残る。タグは認可から外れ、コスト配分専用になった。
+
+### 6.3 対象を 3 機に固定する
 
 QPU 候補は次の 3 機だけとする。
 
@@ -331,11 +345,14 @@ AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SN
 |---|---|---|---|
 | `LocalSimulator` | 不要 | 無料 | 対象外 |
 | `LocalEmulator` | 校正データ取得時だけ `GetDevice`。保存済みJSONなら不要 | ローカル実行は無料 | 対象外 |
-| SV1 / DM1 | simulator region のS3、IAM、Braket有効化 | 時間課金 | 対象外 |
-| QPU | QPU region のS3、IAM、Braket有効化、Spending Limit | task + shots | 対象 |
+| QPU | eu-north-1 のS3、IAM、Braket有効化、Spending Limit | task + shots | 対象 |
 
-したがって、`make sim` は Terraform を一切必要としないが、SV1 / DM1 に投入する前には Phase 3 の
+`make sim` / `make emulate-*` は Terraform を一切必要としない。QPU に投入する前には Phase 3 の
 インフラ構築を終える必要がある。
+
+**SV1 / DM1 は実行経路から外した**（ADR-0004）。SV1 は verbatim 回路を実行できないため、
+validated レコードを発行した回路そのものを投げられない。AWS 経路の確認は Garnet に 10 ショット
+（0.3145 USD）を投げて行う。結果バケットは eu-north-1 の 1 つだけ。
 
 ---
 
@@ -343,9 +360,8 @@ AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SN
 
 - [x] ~~TVD の閾値をいくつにするか~~ → 厳密 TVD < 1e−9、標本 TVD ≤ 1.5 × 標本床、エミュレータ / 実機は λ ≥ 0.5（2026-09-14、issue #7）
 - [x] ~~深さ予算を実行ゲートに組み込むか~~ → エミュレーションの厳密 λ で判定し、誤り予算 B は目安として表示（2026-09-14、issue #7）
-- [ ] runner が付与するタグの集合を確定する。`project` は常時、`campaign` は `.env` の
-      `BRAKET_CAMPAIGN` が非空のときのみ。`campaign` は AQT のタグゲートの鍵であり
-      コスト配分タグでもある（`infra/iam/README.md` §6.1）
+- [x] ~~runner が付与するタグの集合~~ → `project` と `oracle` を常時、`campaign` は実行ごとに任意。
+      **認可には使わない**（2026-09-15、ADR-0004）。実装は issue #17
 - [ ] validated レコードの有効期限 30 日は妥当か（実装は 30 日だが、実質の主判定は
       `capabilities_sha256` の一致になった。日数を 7 日に縮める提案は §4.3）
 - [ ] `--yes` を CI から使う運用を認めるか（現時点では想定しない）
