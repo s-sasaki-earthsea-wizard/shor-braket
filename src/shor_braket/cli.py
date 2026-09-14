@@ -19,6 +19,11 @@ from shor_braket.devices import (
     snapshot_from_get_device,
     summarize_snapshot,
 )
+from shor_braket.gate.record import (
+    DEFAULT_RECORD_DIR,
+    DEFAULT_VALIDITY_DAYS,
+    iter_records,
+)
 from shor_braket.quantum.n15 import ORACLE_MODES
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
@@ -241,6 +246,15 @@ def emulate_n15(
         bool,
         typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
     ] = True,
+    issue_records: Annotated[
+        bool,
+        typer.Option(
+            "--issue-records/--no-issue-records",
+            help="Write a validated record for every configuration that passes.",
+        ),
+    ] = True,
+    record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+    validity_days: Annotated[int, typer.Option(min=1)] = DEFAULT_VALIDITY_DAYS,
 ) -> None:
     """Emulate the N = 15 swap-network circuit on calibration-backed local emulators (offline)."""
     keys = list(QPU_CANDIDATES) if device == "all" else [device]
@@ -266,6 +280,9 @@ def emulate_n15(
         output_dir=output_dir,
         snapshot_dir=snapshot_dir,
         visualize=visualize,
+        issue_records=issue_records,
+        record_dir=record_dir,
+        validity_days=validity_days,
     )
     _echo_json(
         {
@@ -369,3 +386,24 @@ def emulate_n15_iterative(
             "qpu_gate": report["qpu_gate"],
         }
     )
+
+
+@app.command("records")
+def records(
+    record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+) -> None:
+    """List the validated records on disk."""
+    rows = [
+        {
+            "circuit_hash": record.circuit_hash,
+            "device": record.device_key,
+            "oracle_mode": record.oracle_mode,
+            "issued_at": record.issued_at,
+            "expires_at": record.expires_at,
+            "expired": record.is_expired(),
+            "signal_fraction": record.emulation.get("verdict", {}).get("signal_fraction_exact"),
+            "calibration_updated_at": record.snapshot.get("calibration_updated_at"),
+        }
+        for record in iter_records(record_dir)
+    ]
+    _echo_json({"record_dir": str(record_dir), "count": len(rows), "records": rows})
