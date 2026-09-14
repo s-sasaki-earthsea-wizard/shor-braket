@@ -30,6 +30,11 @@ N15_SHOTS  ?= 20000
 emulate-n15:  ## N=15 の QPU 互換回路 (swap network, t=2) を 3 機の LocalEmulator で実行し信号の残存を比較する (無料・オフライン。N15_DEVICE / N15_ORACLE / N15_SHOTS)
 	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15_SHOTS)"
 
+.PHONY: validate-n15
+validate-n15:  ## N=15 の QPU 互換回路をエミュレートし、合格した構成に validated レコードを発行する (無料・オフライン)
+	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" \
+		--shots "$(N15_SHOTS)" --issue-records
+
 N15I_SHOTS ?= 4000
 
 .PHONY: emulate-n15-iterative
@@ -41,11 +46,10 @@ qpu-costs:  ## 将来の QPU 候補 3 機について指定 shots の 1 task 概
 	$(LOCAL_RUN) shor-braket qpu-costs --shots "$(SHOTS)"
 
 .PHONY: validated
-validated:  ## 検証済みレコード runs/validated の一覧を表示する
-	@echo ""
-	@ls -1 runs/validated/*.json 2>/dev/null || echo "  (no validated records yet)"
-	@echo ""
+validated:  ## 検証済みレコード runs/validated の一覧を表示する (無料・オフライン)
+	$(LOCAL_RUN) shor-braket records
 
 .PHONY: circuit
-circuit:  ## 回路を組み立てて OpenQASM と circuit_hash を表示する (実行はしない)
-	$(call notimpl,make circuit,docs/03-execution-gate.md)
+circuit:  ## QPU 互換回路を組み立てて circuit_hash を表示する (実行はしない。DEVICE / ORACLE / QASM=1)
+	$(LOCAL_RUN) shor-braket circuit --device "$(DEVICE)" --oracle "$(ORACLE)" \
+		$(if $(QASM),--qasm,--no-qasm)

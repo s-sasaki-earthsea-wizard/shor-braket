@@ -68,8 +68,9 @@ submit-sv1:  ## オンデマンドシミュレータ SV1 に投入する (⚠️
 	$(call notimpl,make submit-sv1,docs/03-execution-gate.md)
 
 .PHONY: submit-qpu
-submit-qpu:  ## 実機 QPU に投入する (⚠️ 課金あり・要 validated レコード・確認プロンプトあり)
-	$(call notimpl,make submit-qpu,docs/03-execution-gate.md)
+submit-qpu:  ## 実機 QPU への投入を試みる (⚠️ 課金対象・要 validated レコード。現状は preflight まで。DEVICE / ORACLE / SHOTS)
+	$(LOCAL_RUN) shor-braket submit-qpu --device "$(DEVICE)" --oracle "$(ORACLE)" \
+		--shots "$(SHOTS)"
 
 .PHONY: task-status
 task-status:  ## 投入済みタスクの状態を確認する
