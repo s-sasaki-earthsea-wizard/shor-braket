@@ -12,7 +12,6 @@ factoring claim: the swap-network oracle is specific to N = 15 and ``t = 2`` use
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
@@ -36,6 +35,7 @@ from shor_braket.classical.postprocess import recover_orders
 from shor_braket.cost import QPU_CANDIDATES, qpu_cost_estimates
 from shor_braket.devices.calibration import CalibrationSummary, summarize_snapshot
 from shor_braket.devices.snapshot import DEFAULT_SNAPSHOT_DIR, DeviceSnapshot, load_snapshot
+from shor_braket.gate.circuit_hash import circuit_hash
 from shor_braket.quantum.compile import compile_to_native
 from shor_braket.quantum.n15 import (
     MODULUS,
@@ -171,8 +171,8 @@ def order_recovery_exact(
 
 
 def _circuit_hash(program: Circuit) -> tuple[str, str]:
-    source = program.to_ir(ir_type=IRType.OPENQASM).source
-    return f"sha256:{hashlib.sha256(source.encode()).hexdigest()}", str(source)
+    """Hash the normalized IR and return the OpenQASM text for the record's audit trail."""
+    return circuit_hash(program), str(program.to_ir(ir_type=IRType.OPENQASM).source)
 
 
 def _count_marginal(vector: NDArray[np.float64]) -> NDArray[np.float64]:
