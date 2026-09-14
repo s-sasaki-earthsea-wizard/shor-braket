@@ -10,6 +10,12 @@ gates (``prx(theta, phi) · Rz(a) = Rz(a) · prx(theta, phi - a)``), and ``cz`` 
 The ``prx``/``xx`` family flushes pending phases as native ``rz`` gates before each ``xx`` because
 ``XX`` does not commute with Z rotations. Phases left over at the end do not change Z-basis
 measurement statistics and are dropped, which the report records.
+
+The IQM feed-forward operators pass through: ``cc_prx`` gets the pending phase folded into its
+``phi`` like any ``prx`` (both pulses of a conditional pair shift together, so their difference
+and hence the conditional rotation are unchanged), and ``measure_ff`` clears the pending phase
+of its qubit because a Z rotation before a Z-basis measurement is unobservable and the qubit is
+left in a computational basis state.
 """
 
 from __future__ import annotations
@@ -19,6 +25,12 @@ from math import pi
 
 from braket.circuits import Circuit, Gate
 
+from shor_braket.quantum.feedforward import (
+    CCPRX,
+    MEASURE_FF,
+    experimental_capabilities,
+    is_feed_forward,
+)
 from shor_braket.quantum.native import PRX_CZ, PRX_XX
 
 _Op = tuple[str, tuple[int, ...], tuple[float, ...]]
@@ -42,8 +54,12 @@ def _angle(operator: Gate) -> float:
 def _lower_instruction(
     name: str, qubits: tuple[int, ...], operator: Gate, family: str
 ) -> list[_Op]:
-    """Translate one logical gate to prx / rz / cz / xx operations."""
+    """Translate one logical gate to prx / rz / cz / xx / feed-forward operations."""
     q = qubits[0]
+    if name in (CCPRX, MEASURE_FF):
+        if family != PRX_CZ:
+            raise NotImplementedError(f"feed-forward is only lowered for {PRX_CZ!r}")
+        return [(name, (q,), tuple(float(p) for p in operator.parameters))]
     if name == "h":
         return [("prx", (q,), (pi / 2, pi / 2)), ("prx", (q,), (pi, 0.0))]
     if name == "x":
@@ -118,14 +134,14 @@ def compile_to_native(circuit: Circuit, family: str) -> CompiledCircuit:
     operations: list[_Op] = []
     for instruction in circuit.instructions:
         operator = instruction.operator
-        if not isinstance(operator, Gate):
+        if not isinstance(operator, Gate) and not is_feed_forward(operator):
             raise NotImplementedError(f"cannot lower non-gate instruction {operator}")
         qubits = tuple(int(qubit) for qubit in instruction.target)
         operations.extend(_lower_instruction(operator.name.lower(), qubits, operator, family))
 
     pending: dict[int, float] = {}
     native = Circuit()
-    counts: dict[str, int] = {"prx": 0, "rz": 0, "cz": 0, "xx": 0}
+    counts: dict[str, int] = {"prx": 0, "rz": 0, "cz": 0, "xx": 0, "cc_prx": 0, "measure_ff": 0}
 
     def flush(qubit: int) -> None:
         phase = pending.pop(qubit, 0.0)
@@ -140,6 +156,16 @@ def compile_to_native(circuit: Circuit, family: str) -> CompiledCircuit:
             theta, phi = angles
             native.prx(qubits[0], theta, phi - pending.get(qubits[0], 0.0))
             counts["prx"] += 1
+        elif kind == CCPRX:
+            theta, phi, key = angles
+            with experimental_capabilities():
+                native.cc_prx(qubits[0], theta, phi - pending.get(qubits[0], 0.0), int(key))
+            counts["cc_prx"] += 1
+        elif kind == MEASURE_FF:
+            pending.pop(qubits[0], None)
+            with experimental_capabilities():
+                native.measure_ff(qubits[0], int(angles[0]))
+            counts["measure_ff"] += 1
         elif kind == "cz":
             native.cz(*qubits)
             counts["cz"] += 1
