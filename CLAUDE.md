@@ -204,6 +204,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 第一候補デバイス | IQM Garnet（feed-forward 対応 + 低単価） | `docs/04-devices-and-cost.md` |
 | AQT IBEX Q1 の扱い | タグゲート付き Deny（`campaign=device-comparison` で開く） | `docs/adr/0002-*.md` |
 | IAM プリンシパル | 監視ユーザー / 操作ユーザー / 実行ロール(MFA 必須) の 3 分割 | `docs/adr/0002-*.md` |
+| 反復 QPE | 比較軸として残すのみ。既定は標準 QPE（t=2 では λ が動かない） | `quantum/n15_iterative.py` docstring、issue #7 |
+| 投入ゲートの判定 | エミュレーションの厳密 λ ≥ 0.5 で判定。誤り予算 B は目安として表示 | `docs/03-execution-gate.md` §4.1、issue #7 |
+| 信号の検出 | 標本のサポート質量由来 λ が標準誤差の 3 倍を超えれば「信号あり」を別に記録。位数復元率は合否に使わない | `analysis/distribution.py` |
+| ノイズ無しシミュレータの合否 | 厳密 TVD < 1e−9 かつ 標本 TVD ≤ 1.5 × Σ√(p(1−p)/(2πn))。両方を記録 | `runner/reference.py` |
+| DM1 | 必須にしない（LocalEmulator で足りる。AWS 経路の確認は SV1） | issue #7 |
 
 ---
 
