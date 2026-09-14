@@ -30,6 +30,12 @@ N15_SHOTS  ?= 20000
 emulate-n15:  ## N=15 の QPU 互換回路 (swap network, t=2) を 3 機の LocalEmulator で実行し信号の残存を比較する (無料・オフライン。N15_DEVICE / N15_ORACLE / N15_SHOTS)
 	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15_SHOTS)"
 
+N15I_SHOTS ?= 4000
+
+.PHONY: emulate-n15-iterative
+emulate-n15-iterative:  ## N=15 の反復 QPE (feed-forward, count 1 qubit) を標準 QPE と並べて LocalEmulator で比較し、TVD の標本床も出す (無料・オフライン。N15_DEVICE / N15_ORACLE / N15I_SHOTS)
+	$(LOCAL_RUN) shor-braket emulate-n15-iterative --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15I_SHOTS)"
+
 .PHONY: qpu-costs
 qpu-costs:  ## 将来の QPU 候補 3 機について指定 shots の 1 task 概算を表示する
 	$(LOCAL_RUN) shor-braket qpu-costs --shots "$(SHOTS)"

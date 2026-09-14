@@ -23,6 +23,7 @@ from shor_braket.quantum.n15 import ORACLE_MODES
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
 from shor_braket.runner.n15 import run_n15_emulation
+from shor_braket.runner.n15_iterative import DEFAULT_SWEEP_SHOTS, run_iterative_emulation
 from shor_braket.runner.reference import run_reference_simulation
 
 app = typer.Typer(no_args_is_help=True)
@@ -277,6 +278,88 @@ def emulate_n15(
                     "swaps": config["layout"]["swap_count"],
                     "exact_tvd": config.get("metrics", {}).get("exact_tvd"),
                     "signal_fraction": config.get("metrics", {}).get("signal_fraction_exact"),
+                }
+                for key, config in report["configurations"].items()
+            },
+            "qpu_gate": report["qpu_gate"],
+        }
+    )
+
+
+@app.command("emulate-n15-iterative")
+def emulate_n15_iterative(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex | all")] = "all",
+    oracle: Annotated[
+        str, typer.Option("--oracle", help="generic-constant | generic-repeated | all")
+    ] = "all",
+    shots: Annotated[int, typer.Option(min=1, help="Shots of the sampled runs.")] = 4000,
+    count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 2,
+    sweep_shots: Annotated[
+        str, typer.Option("--sweep-shots", help="Comma-separated shot counts for the Monte Carlo.")
+    ] = ",".join(str(n) for n in DEFAULT_SWEEP_SHOTS),
+    repetitions: Annotated[int, typer.Option(min=2)] = 200,
+    standard: Annotated[
+        bool,
+        typer.Option("--standard/--no-standard", help="Also run the standard circuit."),
+    ] = True,
+    output_dir: Annotated[Path, typer.Option(file_okay=False)] = Path("runs/raw"),
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    visualize: Annotated[
+        bool,
+        typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
+    ] = True,
+) -> None:
+    """Emulate the iterative (feed-forward) N = 15 circuit next to the standard one (offline)."""
+    keys = list(QPU_CANDIDATES) if device == "all" else [device]
+    modes = list(ORACLE_MODES) if oracle == "all" else [oracle]
+    if any(key not in QPU_CANDIDATES for key in keys):
+        typer.echo(
+            f"error: {device!r} has no local emulator target; "
+            f"choose one of {sorted(QPU_CANDIDATES)} or 'all'",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if any(mode not in ORACLE_MODES for mode in modes):
+        typer.echo(
+            f"error: {oracle!r} is not an oracle mode; choose one of {list(ORACLE_MODES)} or 'all'",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    try:
+        sweep = [int(part) for part in sweep_shots.split(",") if part.strip()]
+    except ValueError:
+        typer.echo("error: --sweep-shots must be comma-separated integers", err=True)
+        raise typer.Exit(code=1) from None
+    report = run_iterative_emulation(
+        device_keys=keys,
+        oracle_modes=modes,
+        shots=shots,
+        count_qubit_count=count_qubits,
+        sweep_shots=sweep,
+        repetitions=repetitions,
+        include_standard=standard,
+        output_dir=output_dir,
+        snapshot_dir=snapshot_dir,
+        visualize=visualize,
+    )
+    _echo_json(
+        {
+            "artifact_path": report.get("artifact_path"),
+            "claim": report["problem"]["claim"],
+            "configurations": {
+                key: {
+                    "accepted": config["validation"]["accepted"],
+                    "native_two_qubit": config.get("gates", {}).get("native_two_qubit"),
+                    "swaps": config.get("layout", {}).get("swap_count"),
+                    "error_budget": config.get("layout", {}).get("error_budget"),
+                    "exact_tvd": config.get("metrics", {}).get("exact_tvd"),
+                    "signal_fraction": config.get("metrics", {}).get("signal_fraction_exact"),
+                    "support_signal_fraction": config.get("metrics", {}).get(
+                        "support_signal_fraction_exact"
+                    ),
+                    "predicted_signal_fraction": config.get("metrics", {}).get(
+                        "predicted_signal_fraction"
+                    ),
                 }
                 for key, config in report["configurations"].items()
             },
