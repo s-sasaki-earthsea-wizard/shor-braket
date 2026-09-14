@@ -21,6 +21,7 @@ from itertools import permutations
 from braket.circuits import Circuit, Gate, Instruction
 
 from shor_braket.devices.calibration import CalibrationSummary
+from shor_braket.quantum.feedforward import MEASURE_FF, is_feed_forward
 
 _LogicalOp = tuple[str, tuple[int, ...], float | None]
 ONE_QUBIT_OPS_PER_CNOT = 4  # prx gates a CNOT costs on the target after lowering
@@ -74,7 +75,7 @@ def _logical_ops(circuit: Circuit) -> list[_LogicalOp]:
     ops: list[_LogicalOp] = []
     for instruction in circuit.instructions:
         operator = instruction.operator
-        if not isinstance(operator, Gate):
+        if not isinstance(operator, Gate) and not is_feed_forward(operator):
             raise ValueError(f"cannot route non-gate instruction {operator}")
         qubits = tuple(int(qubit) for qubit in instruction.target)
         if len(qubits) > 2:
@@ -121,11 +122,14 @@ def estimate_error_budget(
 
     Two-qubit gates add ``1 - f`` of their coupler (a SWAP counts three times), one-qubit gates
     add ``1 - f_rb`` of their qubit (a CNOT adds four one-qubit gates on its target after
-    lowering), and each measured qubit adds its readout error.
+    lowering), a mid-circuit ``measure_ff`` adds the readout error of its qubit, and each
+    finally measured qubit adds its readout error.
     """
     budget = 0.0
     for name, qubits, _ in routed:
-        if len(qubits) == 2:
+        if name == MEASURE_FF:
+            budget += summary.qubits[qubits[0]].readout_flip_rate
+        elif len(qubits) == 2:
             edge = summary.edge((qubits[0], qubits[1]))
             two_qubit_error = 1.0 - (edge.fidelity if edge else 0.0)
             if name == "swap":
@@ -175,7 +179,7 @@ def _materialize(routed: Sequence[_LogicalOp], template: Circuit) -> Circuit:
     originals = [
         instruction.operator
         for instruction in template.instructions
-        if isinstance(instruction.operator, Gate)
+        if isinstance(instruction.operator, Gate) or is_feed_forward(instruction.operator)
     ]
     index = 0
     for name, qubits, _ in routed:
@@ -215,20 +219,28 @@ def choose_layout(
     logical_qubits: Sequence[int],
     *,
     max_permutations: int | None = None,
+    detached: Sequence[int] = (),
 ) -> RoutedCircuit:
     """Try every assignment of the logical qubits onto compact neighbourhoods; keep the cheapest.
 
     Args:
         circuit: Logical circuit.
         summary: Device calibration.
-        logical_qubits: Logical qubits to place.
+        logical_qubits: Logical qubits to place on a connected region.
         max_permutations: Optional cap on assignments tried per neighbourhood (for tests).
+        detached: Logical qubits that take part in no two-qubit gate (record qubits of the
+            iterative circuit). They are placed after the others, on the unused physical qubits
+            with the best readout fidelity, since they need no coupler.
 
     Returns:
         The routed circuit with the smallest estimated error budget (fewest SWAPs on ties).
     """
     graph = adjacency(summary)
-    ops = _logical_ops(circuit)
+    all_ops = _logical_ops(circuit)
+    for name, qubits, _ in all_ops:
+        if len(qubits) == 2 and set(qubits) & set(detached):
+            raise ValueError(f"detached qubits must not take part in two-qubit gates ({name})")
+    ops = [op for op in all_ops if not set(op[1]) & set(detached)]
     best: tuple[float, int, dict[int, int]] | None = None
     for region in neighbourhoods(graph, len(logical_qubits)):
         for count, assignment in enumerate(permutations(region)):
@@ -242,7 +254,22 @@ def choose_layout(
                 best = candidate
     if best is None:
         raise ValueError("the device has no connected region large enough for the circuit")
-    return route_circuit(circuit, summary, best[2])
+    layout = dict(best[2])
+    if detached:
+        routed, _, _ = _route_ops(ops, graph, layout)
+        used = {qubit for _, qubits, _ in routed for qubit in qubits}
+        free = sorted(
+            (label for label in summary.qubit_labels if label not in used),
+            key=lambda label: (
+                -summary.qubits[label].readout_fidelity,
+                -summary.qubits[label].rb_fidelity,
+                label,
+            ),
+        )
+        if len(free) < len(detached):
+            raise ValueError("the device has no spare qubits for the detached register")
+        layout.update(zip(detached, free, strict=False))
+    return route_circuit(circuit, summary, layout)
 
 
 def relabel(circuit: Circuit, mapping: Mapping[int, int]) -> Circuit:

@@ -29,6 +29,7 @@ from numpy.typing import NDArray
 
 from shor_braket.analysis.distribution import (
     expected_joint_probabilities,
+    sampling_floor,
     total_variation_distance,
 )
 from shor_braket.classical.postprocess import recover_orders
@@ -319,9 +320,7 @@ def emulate_n15_configuration(
                 ),
                 "order_recovery_rate_sampled": recovery["rate"],
                 "order_recovery_baseline_uniform_y": recovery["baseline_uniform_y"],
-                "sampling_floor_estimate": float(
-                    0.5 * np.sqrt(exact_noisy * (1 - exact_noisy) / shots).sum()
-                ),
+                "sampling_floor_estimate": sampling_floor(exact_noisy, shots),
             },
             "distributions": {
                 "expected": expected.tolist(),

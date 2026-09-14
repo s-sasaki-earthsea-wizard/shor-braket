@@ -17,7 +17,7 @@ AWS リソースは Terraform 管理。
 Terraform で構築済みで、root アクセスキーも廃止済み。残りは GitHub issue #1–#5 に記録してある。
 **実機実行が現実味を帯びるまで再開しない。** 再開の入口は issue #1。
 
-issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と LocalEmulator 実行ゲート）。
+issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。次に着手するのは issue #8（validated レコードと投入ゲート）。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
@@ -27,9 +27,16 @@ issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と Loc
 論理 2q ゲート 46）は「15 = 2^4 − 1 を使う N=15 専用の乗算分解」であり、t=2 は r ≤ 4 の知識を使う。結果は
 **因数分解の成功と書かない**。「手掛かりの下で周期 4 の信号がどれだけ残るか」の観察として記録する
 （信号残存率 Emerald 0.73 / Garnet 0.54 / IBEX 0.39。Wiki「N=15 を QPU 互換回路で」）。
-次は **issue #7**（深さ予算を誤り予算 B で持つ、反復 QPE、TVD 閾値、DM1。申し送りは issue #7 のコメント）。
-反復 QPE の `measure_ff` / `cc_prx` は `EnableExperimentalCapability()` 内でだけ組め、`braket_sv` / `braket_dm` /
-LocalEmulator で feed-forward が動くことを確認済み。その後に issue #8 の validated レコードと投入ゲート。
+**2026-09-14: 反復 QPE（feed-forward）を実装し Garnet / Emerald でエミュレーション済み**（`quantum/feedforward.py`、
+`quantum/n15_iterative.py`、`runner/n15_iterative.py`、`make emulate-n15-iterative`、issue #7）。count qubit 1 個を
+`measure_ff` → `cc_prx` の能動リセットで再利用し、位相補正は `cc_prx` 対で入れ、中間測定の結果は記録用 qubit にコピーする
+（実機は MCM の結果を返さない）。**結果: t=2 では λ は標準 QPE と ±0.03 以内で差が無い**（Emerald constant 0.70 vs 0.73、
+Garnet constant 0.53 vs 0.54）。SWAP は Fredkin の三角形要求で決まり count register の数に依存しないため。
+TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近似式 Σ√(p(1−p)/(2πn))）とサポート質量由来の λ（不偏）も
+数値化した。**issue #7 の主要な未決事項（反復 QPE・深さ予算・TVD 閾値・実機の合否・DM1）は決着済み**で、下の「決定事項」表と
+`analysis/distribution.py` の `noiseless_verdict` / `noisy_verdict` が最終形。残る未決はタグ集合、validated レコードの有効期限、
+`--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。**次は issue #8 の validated レコードと投入ゲート。**
+SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（upstream 報告は本題の実験の後）。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
@@ -128,6 +135,14 @@ Co-Authored-By: Claude <noreply@anthropic.com>
   （`runner/n15.py` の `reorder_probabilities`）。全結合機は接続グラフが空で `ResultTypeValidator` が
   `Probability` を拒否するので、解析用のノイズ付き回路は `noise_model.apply` で作る
 - t=2 では count register の周辺分布は理想でも一様。評価は必ず count + work の同時分布で行う
+- **feed-forward 回路（`measure_ff` / `cc_prx`）のノイズ付き実行に SDK の shot 毎シミュレーションを使わない。**
+  default-simulator 1.40.1 の分岐実行は 1 qubit depolarizing と測定後の bit-flip を落とす（`LocalEmulator.run` も同じ）。
+  厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
+  多項サンプリングで作る。エミュレータのノイズモデルも `measure_ff` / `cc_prx` にノイズを付けないので、読み出し bit-flip と
+  1q depolarizing を `runner/n15_iterative.py` で手で足す
+- `braket_dm` の large カーネルは制御 qubit が末尾軸にある制御付き 1 qubit ゲートで落ちる。制御付きゲートは 2 qubit ユニタリで書く
+- 実機の dynamic circuit 制約（キー一意、`cc_prx` は `measure_ff` の後、制御元は 1 qubit、同一 qubit グループ内、verbatim）のうち
+  グループはオフラインで検査できない。投入前にデバイスページで確認する
 
 ---
 
@@ -192,6 +207,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 第一候補デバイス | IQM Garnet（feed-forward 対応 + 低単価） | `docs/04-devices-and-cost.md` |
 | AQT IBEX Q1 の扱い | タグゲート付き Deny（`campaign=device-comparison` で開く） | `docs/adr/0002-*.md` |
 | IAM プリンシパル | 監視ユーザー / 操作ユーザー / 実行ロール(MFA 必須) の 3 分割 | `docs/adr/0002-*.md` |
+| 反復 QPE | 比較軸として残すのみ。既定は標準 QPE（t=2 では λ が動かない） | `quantum/n15_iterative.py` docstring、issue #7 |
+| 投入ゲートの判定 | エミュレーションの厳密 λ ≥ 0.5 で判定。誤り予算 B は目安として表示 | `docs/03-execution-gate.md` §4.1、issue #7 |
+| 信号の検出 | 標本のサポート質量由来 λ が標準誤差の 3 倍を超えれば「信号あり」を別に記録。位数復元率は合否に使わない | `analysis/distribution.py` |
+| ノイズ無しシミュレータの合否 | 厳密 TVD < 1e−9 かつ 標本 TVD ≤ 1.5 × Σ√(p(1−p)/(2πn))。両方を記録 | `runner/reference.py` |
+| DM1 | 必須にしない（LocalEmulator で足りる。AWS 経路の確認は SV1） | issue #7 |
 
 ---
 
@@ -201,7 +221,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 |---|---|---|---|
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
-| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機、2026-09-14）まで。validated レコード・投入ゲートは未着手 |
+| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析（2026-09-14）まで。validated レコード・投入ゲートは未着手 |
 | 3 | Terraform による AWS リソース定義 | 低 | ⏸️ **中断中**。IAM は構築済み（2026-09-13）。残りは issue #1–#4 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |

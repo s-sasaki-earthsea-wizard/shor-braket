@@ -224,5 +224,5 @@ Spending Limitはデバイス単位なので、3機の配分合計をTerraform�
 - [x] ~~月次予算~~ → 100 USD
 - [x] ~~QPU Spending Limit~~ → 初期値0 USD、3機合計の設定上限300 USD
 - [x] ~~S3リージョン~~ → QPUはeu-north-1、SV1/DM1はeu-west-2
-- [ ] 反復的 QPE（feed-forward）を実装するか、通常 QPE のみにするか
-- [ ] ノイズあり検証に DM1 を挟むか
+- [x] ~~反復的 QPE（feed-forward）を実装するか~~ → 実装済み。t=2 では λ が動かないので比較軸として残すのみ、既定は通常 QPE（2026-09-14、issue #7）
+- [x] ~~ノイズあり検証に DM1 を挟むか~~ → 必須にしない（2026-09-14、issue #7）
