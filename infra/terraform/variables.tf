@@ -52,9 +52,15 @@ variable "monitor_user_name" {
 }
 
 variable "execution_role_name" {
-  description = "Role that may create quantum tasks. Assumed by the operator with MFA."
+  description = "Role for everyday task creation on IQM. Assumed by the operator with MFA. Carries an unconditional deny on AQT."
   type        = string
   default     = "ShorBraketExecutionRole"
+}
+
+variable "aqt_role_name" {
+  description = "Role that may create tasks on AQT and nothing else. Assumed by the operator with MFA. Keeping it separate is what makes reaching the 13.6x device a deliberate, CloudTrail-visible act (ADR-0004)."
+  type        = string
+  default     = "ShorBraketAqtRole"
 }
 
 # ---- Budget / alerts (used in Phase 3) ----

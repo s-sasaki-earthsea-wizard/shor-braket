@@ -13,20 +13,30 @@ Terraform 化するときは `templatefile("${path.module}/../iam/*.json", {...}
 
 ## 1. プリンシパルとプロファイルの分割方針
 
-IAM プリンシパルを **3 つ**に分ける。**課金が発生する操作には MFA を必須にする。**
+IAM プリンシパルを **4 つ**に分ける。**課金が発生する操作には MFA を必須にする。**
 
 | プリンシパル | 種別 | ポリシー | MFA | 用途 |
 |---|---|---|---|---|
-| `shor-braket-monitor` | IAM ユーザー | readonly | 不要 | **監視専用。** 閲覧のみで、実行ロールを assume する権限を持たない |
-| `shor-braket-operator` | IAM ユーザー | readonly + assume-exec | 読み取り時は不要 | 操作者の日常作業。読み取りと、実行ロールへの assume |
-| `ShorBraketExecutionRole` | IAM ロール | execute (Allow) + guardrail (Deny) | **必須** | タスク投入。operator が MFA 付きで assume して得る |
+| `shor-braket-monitor` | IAM ユーザー | readonly + deny-aqt | 不要 | **監視専用。** 閲覧のみで、ロールを assume する権限を持たない |
+| `shor-braket-operator` | IAM ユーザー | readonly + assume-roles + deny-aqt | 読み取り時は不要 | 操作者の日常作業。読み取りと、2 つのロールへの assume |
+| `ShorBraketExecutionRole` | IAM ロール | execute + guardrail + **deny-aqt** | **必須** | IQM へのタスク投入。operator が MFA 付きで assume |
+| `ShorBraketAqtRole` | IAM ロール | execute + guardrail + **deny-iqm** | **必須** | AQT へのタスク投入**のみ**。ADR-0004 |
+
+**AQT を別ロールに分けている理由**（ADR-0004）: IBEX の単価は Garnet の 16.2 倍で、
+2,000 ショットなら 3.20 USD に対して 47.30 USD になる。以前はリクエストタグ
+`campaign=device-comparison` で Deny を開ける設計だったが、**`aws:RequestTag` は呼び出し側が
+自分のリクエストに乗せる値**なので、実行ロールは自分に掛かった Deny を自分で外せた。
+権限境界ではなく操作上の段差にすぎない。ロールを分けると、高額機に触る行為が
+CloudTrail の独立した `AssumeRole` イベントになり、通常ロールはタグが何であれ AQT に到達できない。
+2 つのロールは互いの領域を Deny するので、どちらも相手の仕事を誤ってできない。
 
 操作者の端末から見たプロファイルは従来通り 2 つ。監視ユーザーの鍵は操作者の端末には置かない。
 
 | プロファイル | 実体 | MFA | 用途 |
 |---|---|---|---|
 | `shor-braket-ro` | operator の長期キー | 不要 | デバイス一覧・価格取得・結果閲覧・コスト確認 |
-| `shor-braket-exec` | `shor-braket-ro` を source に role を assume | **必須** | `submit-sv1` / `submit-qpu` |
+| `shor-braket-exec` | `shor-braket-ro` を source に実行ロールを assume | **必須** | `submit-qpu`（IQM） |
+| `shor-braket-aqt` | `shor-braket-ro` を source に AQT ロールを assume | **必須** | `submit-qpu DEVICE=ibex` |
 | `shor-braket-monitor` | monitor の長期キー | 不要 | ダッシュボード・別端末・別の人。**実行不可** |
 
 実装は **IAM ユーザー + assume role** 方式。
@@ -37,14 +47,18 @@ IAM User: shor-braket-monitor
 
 IAM User: shor-braket-operator
   ├─ shor-braket-readonly-policy.json      (直接アタッチ・MFA 不要)
-  └─ shor-braket-assume-exec-policy.json   (sts:AssumeRole のみ。MFA 条件なし)
+  ├─ shor-braket-deny-aqt-policy.json      (Deny。長期キーから AQT に到達させない)
+  └─ shor-braket-assume-roles-policy.json  (sts:AssumeRole のみ。MFA 条件なし)
        │
        │  sts:AssumeRole (MFA は信頼ポリシー側で強制)
-       ▼
-IAM Role: ShorBraketExecutionRole
-  ├─ execution-role-trust-policy.json      (信頼ポリシー: MFA 必須・1 時間で失効)
-  ├─ shor-braket-execute-policy.json       (Allow)
-  └─ shor-braket-guardrail-policy.json     (Deny)
+       ├───────────────────────────────┐
+       ▼                               ▼
+IAM Role: ShorBraketExecutionRole   IAM Role: ShorBraketAqtRole
+  ├─ execution-role-trust-policy      ├─ aqt-role-trust-policy
+  ├─ shor-braket-execute-policy       ├─ shor-braket-execute-policy
+  ├─ shor-braket-guardrail-policy     ├─ shor-braket-guardrail-policy
+  └─ shor-braket-deny-aqt-policy      └─ shor-braket-deny-iqm-policy
+       IQM のみ                            AQT のみ
 ```
 
 **監視と操作を別ユーザーにする理由**: 同じユーザーの長期キーを監視用に渡すと、
@@ -80,10 +94,13 @@ duration_seconds = 3600
 | ファイル | 種別 | アタッチ先 |
 |---|---|---|
 | `shor-braket-readonly-policy.json` | Allow | ユーザー `shor-braket-monitor` と `shor-braket-operator` の両方 |
-| `shor-braket-assume-exec-policy.json` | Allow | ユーザー `shor-braket-operator` **のみ** |
+| `shor-braket-assume-roles-policy.json` | Allow | ユーザー `shor-braket-operator` **のみ** |
 | `execution-role-trust-policy.json` | 信頼ポリシー | ロール `ShorBraketExecutionRole` |
-| `shor-braket-execute-policy.json` | Allow | ロール `ShorBraketExecutionRole` |
-| `shor-braket-guardrail-policy.json` | Deny | ロール（および両ユーザーにも推奨） |
+| `aqt-role-trust-policy.json` | 信頼ポリシー | ロール `ShorBraketAqtRole` |
+| `shor-braket-execute-policy.json` | Allow | 両ロール |
+| `shor-braket-guardrail-policy.json` | Deny | 全プリンシパル共通 |
+| `shor-braket-deny-aqt-policy.json` | Deny | 両ユーザーと `ShorBraketExecutionRole` |
+| `shor-braket-deny-iqm-policy.json` | Deny | `ShorBraketAqtRole` **のみ** |
 | `shor-braket-guardrail-allowlist-EXPERIMENTAL.json` | Deny | **未検証**。§6 参照 |
 
 IAM では Deny が常に Allow に優先するため、ガードレールは Allow ポリシーの内容に
@@ -148,7 +165,7 @@ MFA なしの `CreateQuantumTask` を明示的に拒否する。
 
 ### 4.3 ユーザー側の AssumeRole 許可には MFA 条件を付けない
 
-`shor-braket-assume-exec-policy.json` は `sts:AssumeRole` を無条件で Allow する。
+`shor-braket-assume-roles-policy.json` は `sts:AssumeRole` を無条件で Allow する。
 MFA の強制は信頼ポリシー（§4.1）が担う。
 
 ユーザー側の Allow に `aws:MultiFactorAuthPresent` 条件を付けると、長期キーで署名した
@@ -213,38 +230,56 @@ arn:aws:braket:<region>:*:device/quantum-simulator/<provider>/<device_id>
 AQT IBEX Q1 は最悪でも予算の半分で、許可済みの超伝導機と同じ桁。一方で全結合のイオントラップとして
 デバイス比較（Wiki「デバイス比較」）に必要であり、200 ショット（$5.00）運用なら予算内に収まる。
 無条件 Deny では粒度が粗すぎ、無条件許可ではクライアント側のガードだけが頼りになる。
-そこで **タグで開ける Deny** にする。
+そこで **AQT を専用ロールに分ける**（ADR-0004）。
 
-### 6.1 AQT のタグゲート
+### 6.1 AQT 専用ロール
+
+**2026-09-15 にタグゲートを廃止した。** 以前は次の Deny で、リクエストタグ
+`campaign=device-comparison` が付いたときだけ AQT を通していた。
 
 ```json
 {
   "Sid": "DenyAqtUnlessCampaignTagged",
-  "Effect": "Deny",
-  "Action": ["braket:CreateQuantumTask", "braket:CreateJob"],
-  "Resource": ["arn:aws:braket:*:*:device/qpu/aqt/*"],
   "Condition": {
     "StringNotEqualsIfExists": { "aws:RequestTag/campaign": "device-comparison" }
   }
 }
 ```
 
-| リクエストのタグ | 条件の評価 | 結果 |
+**この設計は境界にならない。** `aws:RequestTag` は呼び出し側が自分のリクエストに乗せる値なので、
+実行ロールは自分でタグを付けて、自分に掛かっている Deny を解除できる。
+「意図的なタグ付け」は UX であって認可ではない。
+
+現在は能力そのものを分けている。
+
+| プリンシパル | AQT | IQM | 効き方 |
+|---|---|---|---|
+| `ShorBraketExecutionRole` | **無条件 Deny** | Allow | タグが何であれ AQT に到達できない |
+| `ShorBraketAqtRole` | Allow | **無条件 Deny** | AQT 専用。assume が独立した監査イベントになる |
+| 両ユーザー（長期キー） | **無条件 Deny** | 読み取りのみ | 長期キーから高額機に触れない |
+
+利点は 3 つ。
+
+1. **事故が権限で止まる。** `DEVICE=ibex` の打ち間違いは通常ロールでは `AccessDenied` になる。
+   クライアント側のガードを通り抜けても IAM で止まる
+2. **監査信号が立つ。** 高額機に触る行為が CloudTrail の独立した `AssumeRole` イベントになる。
+   普通のタスクに紛れた文字列ではない
+3. **未検証の構文を使わずに済む。** 無条件のデバイス ARN Deny は AWS が文書化しており、
+   IonQ 向けに既に使っている。以前の「ARN を Resource に取る Deny + `aws:RequestTag`」は
+   AWS の公式例になく、検証が必要だった（issue #2）
+
+`campaign` タグは残すが、**コスト配分専用**になる。認可には使わない。
+デバイス比較キャンペーンで Garnet と Emerald を回すときは通常ロールに `campaign` タグを付け、
+IBEX だけ別ロールを assume する。キャンペーンの費用はタグで横断的に集計できるまま、能力だけが分かれる。
+ロールが能力を分け、タグは会計を束ねる。
+
+AQT には 3 層が掛かる。
+
+| 層 | 手段 | 変更に要するもの |
 |---|---|---|
-| なし | `...IfExists` はキー欠落を真と評価 | **拒否** |
-| `campaign=device-comparison` | 等しいので `StringNotEquals` は偽 | 通過（Allow 側の判定へ） |
-| `campaign=別の値` | 等しくないので真 | **拒否** |
-
-- 事故（癖で `SHOTS=1000`、`.env` の設定漏れ、クライアントのバグ）はタグが付かないので IAM で止まる
-- 意図した投入はクライアントがタグを付ける。`.env` の `BRAKET_CAMPAIGN=device-comparison` を
-  設定したときだけ runner がタグを付与する設計とする（`docs/03-execution-gate.md`）
-- タグはそのままコスト配分タグになる。監視ユーザーが Cost Explorer でキャンペーン別の消費を追える（§10）
-- `...IfExists` を使うのは、キー欠落時の評価を明示するため。否定演算子はキー欠落時に真を返すが、
-  その暗黙の挙動に依存しない
-
-**要検証**: デバイス ARN を Resource にした Deny と `aws:RequestTag` の組み合わせは、
-`simulate-principal-policy` で 3 ケース（§7.1）が期待通りになることを確認してから運用に載せる。
-通らない場合は AQT を Deny から外し、クライアント側の `BRAKET_MAX_COST_USD` に任せる。
+| サービス側 | Braket Spending Limit 初期値 0 USD | Terraform + admin ロール + MFA + git の差分 |
+| 認可 | `ShorBraketAqtRole` の assume | operator の MFA |
+| 事故防止 | クライアントの preflight と `BRAKET_MAX_COST_USD` | なし（迂回可能） |
 
 クライアント側の `BRAKET_MAX_COST_USD=10` なら IBEX は 412 ショットまで通り、1,000 ショット（$23.80）は
 弾かれる。IAM のタグゲートとクライアントの上限は独立に効く二重の防御。
@@ -283,7 +318,9 @@ make iam-verify     # .env の AWS_ACCOUNT_ID / IAM_PRINCIPAL を使う
 ```
 
 代表的な 5 デバイスについて `EvalDecision` を並べて表示する。
-IQM / Rigetti / シミュレータが `allowed`、IonQ / AQT が `explicitDeny` になれば期待通り。
+実行ロールでは IQM / Rigetti が `allowed`、IonQ / AQT が `explicitDeny` になれば期待通り。
+**AQT ロールを対象にすると逆になる**（AQT が `allowed`、IQM が `explicitDeny`）。
+ADR-0004 でタグゲートを廃したので、タグ付きコンテキストでの評価は不要になった。
 
 `.env` に `IAM_MONITOR_PRINCIPAL` を設定してあれば、監視ユーザーについても評価し、
 MFA ありのコンテキストでも `CreateQuantumTask` と `sts:AssumeRole` が `implicitDeny` になることを確認する。

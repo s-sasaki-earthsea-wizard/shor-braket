@@ -17,22 +17,6 @@
       ]
     },
     {
-      "Sid": "DenyAqtUnlessCampaignTagged",
-      "Effect": "Deny",
-      "Action": [
-        "braket:CreateQuantumTask",
-        "braket:CreateJob"
-      ],
-      "Resource": [
-        "arn:aws:braket:*:*:device/qpu/aqt/*"
-      ],
-      "Condition": {
-        "StringNotEqualsIfExists": {
-          "aws:RequestTag/campaign": "device-comparison"
-        }
-      }
-    },
-    {
       "Sid": "DenyTaskCreationWithoutMfa",
       "Effect": "Deny",
       "Action": [
