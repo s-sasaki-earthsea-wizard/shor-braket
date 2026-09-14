@@ -19,8 +19,10 @@ from shor_braket.devices import (
     snapshot_from_get_device,
     summarize_snapshot,
 )
+from shor_braket.quantum.n15 import ORACLE_MODES
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
+from shor_braket.runner.n15 import run_n15_emulation
 from shor_braket.runner.reference import run_reference_simulation
 
 app = typer.Typer(no_args_is_help=True)
@@ -218,6 +220,65 @@ def emulate(
             "runs": {
                 name: {"tvd": run["tvd"], "ideal_support_mass": run["ideal_support_mass"]}
                 for name, run in report["runs"].items()
+            },
+            "qpu_gate": report["qpu_gate"],
+        }
+    )
+
+
+@app.command("emulate-n15")
+def emulate_n15(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald | ibex | all")] = "all",
+    oracle: Annotated[
+        str, typer.Option("--oracle", help="generic-constant | generic-repeated | all")
+    ] = "all",
+    shots: Annotated[int, typer.Option(min=1)] = 20_000,
+    count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 2,
+    output_dir: Annotated[Path, typer.Option(file_okay=False)] = Path("runs/raw"),
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+    visualize: Annotated[
+        bool,
+        typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
+    ] = True,
+) -> None:
+    """Emulate the N = 15 swap-network circuit on calibration-backed local emulators (offline)."""
+    keys = list(QPU_CANDIDATES) if device == "all" else [device]
+    modes = list(ORACLE_MODES) if oracle == "all" else [oracle]
+    if any(key not in QPU_CANDIDATES for key in keys):
+        typer.echo(
+            f"error: {device!r} has no local emulator target; "
+            f"choose one of {sorted(QPU_CANDIDATES)} or 'all'",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    if any(mode not in ORACLE_MODES for mode in modes):
+        typer.echo(
+            f"error: {oracle!r} is not an oracle mode; choose one of {list(ORACLE_MODES)} or 'all'",
+            err=True,
+        )
+        raise typer.Exit(code=1)
+    report = run_n15_emulation(
+        device_keys=keys,
+        oracle_modes=modes,
+        shots=shots,
+        count_qubit_count=count_qubits,
+        output_dir=output_dir,
+        snapshot_dir=snapshot_dir,
+        visualize=visualize,
+    )
+    _echo_json(
+        {
+            "artifact_path": report.get("artifact_path"),
+            "claim": report["problem"]["claim"],
+            "configurations": {
+                key: {
+                    "accepted": config["validation"]["accepted"],
+                    "native_two_qubit": config["gates"]["native_two_qubit"],
+                    "swaps": config["layout"]["swap_count"],
+                    "exact_tvd": config.get("metrics", {}).get("exact_tvd"),
+                    "signal_fraction": config.get("metrics", {}).get("signal_fraction_exact"),
+                }
+                for key, config in report["configurations"].items()
             },
             "qpu_gate": report["qpu_gate"],
         }
