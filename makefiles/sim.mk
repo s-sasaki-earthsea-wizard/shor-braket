@@ -22,6 +22,14 @@ emulate:  ## 校正スナップショットから LocalEmulator を組み、ネ�
 emulate-all:  ## 3 機すべてで emulate を実行し、比較図と report.md を生成する
 	$(LOCAL_RUN) shor-braket emulate --device all --shots "$(SHOTS)"
 
+N15_DEVICE ?= all
+N15_ORACLE ?= all
+N15_SHOTS  ?= 20000
+
+.PHONY: emulate-n15
+emulate-n15:  ## N=15 の QPU 互換回路 (swap network, t=2) を 3 機の LocalEmulator で実行し信号の残存を比較する (無料・オフライン。N15_DEVICE / N15_ORACLE / N15_SHOTS)
+	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15_SHOTS)"
+
 .PHONY: qpu-costs
 qpu-costs:  ## 将来の QPU 候補 3 機について指定 shots の 1 task 概算を表示する
 	$(LOCAL_RUN) shor-braket qpu-costs --shots "$(SHOTS)"

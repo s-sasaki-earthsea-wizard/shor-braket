@@ -22,9 +22,12 @@ issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と Loc
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
 課金も Terraform も不要。`make emulate` / `emulate-all` はオフラインで verbatim 検証と校正ノイズ付き実行を行う。
-QPU 互換の N=15 回路（swap network の U_7 / U_4、`generic-constant`、t=2 で 6 qubit）は未実装。着手時は
-「15 = 2^4 − 1 を使う N=15 専用の乗算分解」であることと、`generic-repeated` が数千ゲートで不可能なことを
-記録に明記する。
+**2026-09-14: N=15 の QPU 互換回路を実装し 3 機でエミュレーション済み**（`quantum/n15.py`、`quantum/routing.py`、
+`quantum/compile.py`、`runner/n15.py`、`make emulate-n15`）。swap network の U_7 / U_4（`generic-constant`、t=2、6 qubit、
+論理 2q ゲート 46）は「15 = 2^4 − 1 を使う N=15 専用の乗算分解」であり、t=2 は r ≤ 4 の知識を使う。結果は
+**因数分解の成功と書かない**。「手掛かりの下で周期 4 の信号がどれだけ残るか」の観察として記録する
+（信号残存率 Emerald 0.73 / Garnet 0.54 / IBEX 0.39。Wiki「N=15 を QPU 互換回路で」）。
+次は validated レコードの発行と投入ゲート（issue #8、別ブランチ）。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
@@ -117,6 +120,12 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - エミュレーション結果（`execution.class = local-emulator`）を validated レコードにしない。結果には
   スナップショットの `capabilities_sha256` と `calibration_updated_at` を残し、古い校正の結果を現在値として扱わない
 - IQM の CNOT は `prx` 4 枚 + `cz` 1 枚。qubit 選択は 2 qubit 忠実度だけでなく参加 qubit の 1 qubit RB も見る
+- ルーティングと配置は `quantum/routing.py` の自前貪欲ルータ（近傍 × 全順列で誤り予算最小）。誤り予算 B の総和で
+  信号残存率 λ ≈ exp(−B) が予測できる。Qiskit のトランスパイラは使わない
+- Braket の `Probability(target=...)` は昇順でない target 順を守らない。昇順で取って自分で並べ替える
+  （`runner/n15.py` の `reorder_probabilities`）。全結合機は接続グラフが空で `ResultTypeValidator` が
+  `Probability` を拒否するので、解析用のノイズ付き回路は `noise_model.apply` で作る
+- t=2 では count register の周辺分布は理想でも一様。評価は必ず count + work の同時分布で行う
 
 ---
 
@@ -190,7 +199,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 |---|---|---|---|
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
-| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク（3 機、2026-09-14）まで。QPU 互換回路・投入ゲートは未着手 |
+| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機、2026-09-14）まで。validated レコード・投入ゲートは未着手 |
 | 3 | Terraform による AWS リソース定義 | 低 | ⏸️ **中断中**。IAM は構築済み（2026-09-13）。残りは issue #1–#4 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |

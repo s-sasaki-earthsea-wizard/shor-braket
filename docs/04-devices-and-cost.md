@@ -104,8 +104,11 @@ N = 6 の回路は 4〜6 qubit。**量子ビット数はどのデバイスでも
 - **全結合**: AQT IBEX Q1、IonQ Forte Enterprise 1 → SWAP 不要、回路が浅い
 - **格子（非全結合）**: Rigetti Cepheus、IQM Garnet / Emerald → SWAP が入り実効深さが増える
 
-ただし 4〜6 qubit という小ささなら格子でも SWAP のオーバーヘッドは限定的。
-**トランスパイル後の 2 qubit ゲート数を実測して比較すること**（実行ゲート A5 の副産物）。
+**実測（2026-09-14、N=15, t=2, 6 qubit）では格子の SWAP は限定的ではなかった。** 論理 46 ゲートの回路が
+IQM Garnet で 88（SWAP 14）、IQM Emerald で 91（SWAP 15）になり、全結合の IBEX Q1 は 46 のまま。
+Fredkin が三角形の接続を要求するのに格子は二部グラフなので、SWAP は構造的に避けられない。
+それでも信号残存率は IQM の方が高く（Emerald 0.73、Garnet 0.54、IBEX 0.39）、2 qubit 忠実度の差が
+ゲート数の差を上回った（Wiki「N=15 を QPU 互換回路で」）。
 
 ### 4.2 ミッドサーキット測定とフィードフォワード ← 重要な発見
 

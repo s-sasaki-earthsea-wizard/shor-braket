@@ -15,3 +15,8 @@
 参照したスナップショットの `capabilities_sha256` を含む。`make emulate-all` は加えて
 `raw/emulator-comparison-<timestamp>/` に 3 機の比較図と `report.md` を書く。どちらも validated レコードを
 発行しない。
+
+`make emulate-n15` は `raw/n15-emulation-<timestamp>/` に N=15 の QPU 互換回路（swap network, t=2）を
+3 機 × 2 oracle で走らせた `result.json`（配置、ゲート数、厳密なノイズ付き分布と標本、信号残存率）、
+`circuits/*.qasm`（verbatim 回路）、`figures/`、`report.md` を書く。`execution.class = local-emulator-n15`、
+`qpu_gate.qpu_eligible = false`。

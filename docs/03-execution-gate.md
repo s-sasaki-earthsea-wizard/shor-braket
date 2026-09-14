@@ -112,6 +112,9 @@ Phase 1 の行列参照回路は A1〜A3 の基準値を作るが、`qpu_eligibl
   リーケージは含まれない。実機より楽観的な見積りになりうる
 - 校正データは `devices/snapshots/` のスナップショットから読む（`make device-snapshot`）。結果には
   `capabilities_sha256` と `calibration_updated_at` を残し、古い校正での結果を現在値として扱わない
+- `Probability(target=...)` は昇順でない target 順を守らない。昇順で取り、自分でレジスタ順に並べ替える
+- 全結合機（IBEX Q1）は接続グラフが空で、`ResultTypeValidator` が `Probability` の全 qubit を拒否する。
+  解析用のノイズ付き回路は `noise_model.apply` で作り、エミュレータのバリデータは verbatim 回路の検証にだけ使う
 
 ### 4.2 保存場所
 
