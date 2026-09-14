@@ -27,7 +27,9 @@ issue #6 は完了。次に着手するのは issue #8（QPU 互換回路と Loc
 論理 2q ゲート 46）は「15 = 2^4 − 1 を使う N=15 専用の乗算分解」であり、t=2 は r ≤ 4 の知識を使う。結果は
 **因数分解の成功と書かない**。「手掛かりの下で周期 4 の信号がどれだけ残るか」の観察として記録する
 （信号残存率 Emerald 0.73 / Garnet 0.54 / IBEX 0.39。Wiki「N=15 を QPU 互換回路で」）。
-次は validated レコードの発行と投入ゲート（issue #8、別ブランチ）。
+次は **issue #7**（深さ予算を誤り予算 B で持つ、反復 QPE、TVD 閾値、DM1。申し送りは issue #7 のコメント）。
+反復 QPE の `measure_ff` / `cc_prx` は `EnableExperimentalCapability()` 内でだけ組め、`braket_sv` / `braket_dm` /
+LocalEmulator で feed-forward が動くことを確認済み。その後に issue #8 の validated レコードと投入ゲート。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
