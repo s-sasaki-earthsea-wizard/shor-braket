@@ -4,6 +4,11 @@
 - **日付**: 2026-09-07
 - **決定者**: Syota Sasaki
 
+> **一部置換済み (2026-09-15)**: AQT のタグゲートと IAM プリンシパルの 3 分割は
+> [ADR-0004](0004-aqt-role-split-and-single-region.md) が置き換えた。AQT は専用ロール
+> `ShorBraketAqtRole` に分離し、プリンシパルは 4 つになった。`shor-braket-exec` の用途から
+> `submit-sv1` は外れた。
+
 ## 背景
 
 Amazon Braket の QPU は「タスクあたり定額 + ショットあたり従量」で課金され、

@@ -16,16 +16,24 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
 | **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
-| Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
+| ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
-**2026-09-14: N=15のローカル参照実装が完成。** AWS側はIAMまで構築済みで、SV1 / DM1の前提となる
+**2026-09-14: N=15のローカル参照実装が完成。** AWS側はIAMまで構築済みで、QPU投入の前提となる
 S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)で追跡する。
 ローカルシミュレータは無料でAWS認証も不要なので、`make setup`だけで開発を始められる。
 
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
 連分数による位数復元、3 × 5 の導出、同時分布検証、JSON 結果保存を実装済み。
 この参照回路は密行列を使うため **QPU 投入不可**。QPU 互換回路と投入ゲートは別実装とする。
+
+**2026-09-15: AQT を専用ロールに分離し、SV1 を実行経路から外した**（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)）。
+AQT は以前リクエストタグ `campaign=device-comparison` で IAM の Deny を開けていたが、
+`aws:RequestTag` は呼び出し側が自分のリクエストに乗せる値なので、実行ロールは自分に掛かった Deny を
+自分で外せた。現在は `ShorBraketExecutionRole` が AQT を、`ShorBraketAqtRole` が IQM を無条件 Deny する。
+タグは認可から外れ、`project` と `oracle` を常時、`campaign` を任意で付けるコスト配分・監査専用になった。
+**SV1 は verbatim 回路を実行できない**ので実行経路から外し、AWS 経路の確認は Garnet に 10 ショット
+（0.3145 USD）を投げて行う。**使うリージョンは eu-north-1 のみ、結果バケットは 1 つ。**
 
 **2026-09-14: validated レコードと投入ゲートを実装。** QPU 互換回路をエミュレートして合格した構成に
 `runs/validated/<hash>.json` を発行し、`make submit-qpu` が投入前に回路ハッシュ・対象デバイス・校正の鮮度・
@@ -100,7 +108,7 @@ Shor の実機デモの多くは、位数 $r$ を**あらかじめ知った上�
    └──────────┬──────────┘
               │
    ┌──────────▼──────────┐
-   │ Amazon Braket       │  SV1 → QPU
+   │ Amazon Braket       │  QPU (eu-north-1)
    └─────────────────────┘
 ```
 
@@ -259,7 +267,8 @@ MFA 必須の管理者ロールを作り、root キーを削除する。`make tf
 | プロファイル | 権限 | MFA | 用途 |
 |---|---|---|---|
 | `shor-braket-ro` | 読み取りのみ | 不要 | デバイス一覧・価格取得・結果閲覧 |
-| `shor-braket-exec` | タスク投入 | **必須** | `submit-sv1` / `submit-qpu` |
+| `shor-braket-exec` | タスク投入 (IQM) | **必須** | `submit-qpu` |
+| `shor-braket-aqt` | タスク投入 (AQT IBEX のみ) | **必須** | `submit-qpu DEVICE=ibex`。高額機は別ロール |
 | `shor-braket-monitor` | 読み取りのみ（**別 IAM ユーザー**、assume 権限なし） | 不要 | ダッシュボード・別端末・別の人 |
 
 実装は IAM ユーザー + MFA 必須の assume role。`~/.aws/config` の書き方と
@@ -330,8 +339,6 @@ make validated     # 発行済みレコードの一覧
 # 4. 実機 QPU への投入ゲートを回す（validated レコードが必須。コスト確認プロンプトあり）
 make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000
 
-# 5. Braket オンデマンドシミュレータ (SV1) で実行（未実装）
-make submit-sv1
 ```
 
 `make submit-qpu` は現状、回路側の検査をすべて通したうえで Spending Limit が読めないことを理由に

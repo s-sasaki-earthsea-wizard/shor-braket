@@ -10,8 +10,8 @@
 aws_account_id = "000000000000"
 
 # 結果保存用 S3 バケットを置くリージョン。
-# 主に使う QPU のリージョンに寄せてクロスリージョン転送料を避ける。
-# IQM (garnet/emerald) を使うなら eu-north-1
+# Braket は「タスクを投入したリージョン」のバケットに結果を書く。採用した QPU 3 機は
+# すべて eu-north-1 にあり、SV1/DM1 は実行経路から外した (ADR-0004) ので、使うのはここだけ
 results_bucket_region = "eu-north-1"
 
 # ---- S3 ----
@@ -22,16 +22,18 @@ results_bucket_name = "amazon-braket-CHANGE-ME"
 results_transition_days = 90
 
 # ---- IAM ----
-# 操作者ユーザー。読み取り + 実行ロールへの assume。MFA デバイスを登録する
+# 操作者ユーザー。読み取り + 実行ロール / AQT ロールへの assume。MFA デバイスを登録する
 operator_user_name = "shor-braket-operator"
 # 監視ユーザー。読み取りのみで assume 権限を持たない
 monitor_user_name = "shor-braket-monitor"
 
-# 実行ロール名。変えるなら infra/iam/*.json 内の参照も合わせる (plan 時に precondition が検出する)
+# ロール名。変えるなら infra/iam/*.json 内の参照も合わせる (plan 時に precondition が検出する)
 # execution_role_name = "ShorBraketExecutionRole"
+# AQT 専用ロール。高額機に触るには別の assume が要る (ADR-0004)
+# aqt_role_name = "ShorBraketAqtRole"
 
-# デバイスの拒否リストと AQT のタグゲートは infra/iam/shor-braket-guardrail-policy.json が
-# 唯一の定義。Terraform はその JSON をそのまま読み込む (二重管理しない)
+# デバイスの拒否リストは infra/iam/shor-braket-*-policy.json が唯一の定義。
+# Terraform はその JSON をそのまま読み込む (二重管理しない)
 
 # ---- コスト ----
 monthly_budget_usd = 100

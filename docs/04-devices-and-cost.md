@@ -52,10 +52,11 @@ aws braket get-device --device-arn <arn> --region <region>
 
 > ⚠️ **SV1 / DM1 は eu-north-1 に存在しない**（2026-09-13 実測）。
 > eu-north-1 にあるのは QPU 3 機（IQM Garnet / Emerald、AQT IBEX Q1）のみ。
-> Braket はタスクを投入したリージョンの S3 バケットに結果を書くため、
-> **QPU 用（eu-north-1）とシミュレータ用のバケットが 2 つ必要**になる。
-> シミュレータ側は **eu-west-2（ロンドン）** を採る。EU 内で eu-north-1 に最も近く、
-> 結果データが EU を出ない。
+> Braket はタスクを投入したリージョンの S3 バケットに結果を書くため、シミュレータを使うなら
+> バケットが 2 つ必要になる。
+>
+> **2026-09-15: SV1 / DM1 を使わないことにした**（ADR-0004）ので、2 つ目のバケットは作らない。
+> 使うリージョンは **eu-north-1（ストックホルム）のみ**。
 
 ### リージョンの分布（2026-09-13 実測）
 
@@ -66,8 +67,8 @@ aws braket get-device --device-arn <arn> --region <region>
 | `us-east-1` | SV1、DM1、QuEra Aquila、IonQ Forte Enterprise 1 |
 | `us-west-1` | Rigetti Cepheus-1-108Q、SV1、DM1 |
 
-**本プロジェクトの選択**: QPU は `eu-north-1`（採用した 3 機が全てここにある）、
-シミュレータは `eu-west-2`。S3 バケットは両リージョンに 1 つずつ置く。
+**本プロジェクトの選択**: `eu-north-1` のみ（採用した 3 機が全てここにある）。
+S3 バケットは 1 つ。マネージドシミュレータは使わない（ADR-0004）。
 
 ### 対象外
 
@@ -170,19 +171,25 @@ device.properties.provider   # デバイス固有の校正データ
 ## 5. 推奨する実行段階
 
 ```
-1. LocalSimulator   無料      行列参照回路とQPU論理回路の正しさ
-2. LocalEmulator    無料      対象機のネイティブゲート・接続・校正ノイズを検証
-3. SV1              $0.075/分  Braket マネージド環境、IAM、S3の動作確認
-4. DM1              $0.075/分  任意の追加ノイズ試験
-5. QPU              $1.75〜    実機実行
+1. LocalSimulator   無料        行列参照回路とQPU論理回路の正しさ
+2. LocalEmulator    無料        対象機のネイティブゲート・接続・校正ノイズを検証
+3. QPU 最小ショット  $0.3145    AWS 経路 (IAM / S3 / Braket API / Spending Limit) の確認
+4. QPU              $1.75〜     実機実行
 ```
 
-QPU互換回路には **LocalEmulatorを必ず挟む**。対象機へ変換したverbatim回路そのものを校正データと
-照合し、同じ回路ハッシュだけをQPU投入可能にする。SV1も最初のQPU投入前に通し、AWS経路の問題を
-低額で潰す。DM1を追加で挟むかは未決。
+**2026-09-15: SV1 / DM1 を実行経路から外した**（ADR-0004）。**SV1 は verbatim 回路を実行できない**
+（AWS 開発者ガイド: verbatim compilation は AQT / IonQ / IQM / Rigetti のみ）。
+したがって validated レコードを発行した回路そのものを投げられず、AWS 経路の確認としては
+Garnet に 10 ショット投げるほうが検証範囲が広い。
 
-LocalSimulator / LocalEmulator はDocker内で動くためBraket利用料は発生しない。SV1 / DM1はAWS上の
-タスクなので、実行前にeu-west-2の結果用S3、IAM、Braket有効化をTerraformと手動手順で用意する。
+QPU互換回路には **LocalEmulatorを必ず挟む**。対象機へ変換したverbatim回路そのものを校正データと
+照合し、同じ回路ハッシュだけをQPU投入可能にする。
+
+段階 3 と 4 の違いはショット数だけで、回路もリージョンもロールも同じ。段階 3 で経路を確認してから
+ショット数を上げる。SV1 と違い、verbatim・ネイティブゲート・接続性・Spending Limit がすべて実物で通る。
+
+LocalSimulator / LocalEmulator はDocker内で動くためBraket利用料は発生しない。
+QPU 投入の前に **eu-north-1** の結果用S3、IAM、Braket有効化をTerraformと手動手順で用意する。
 
 校正データは `make device-snapshot`（読み取りプロファイルで `GetDevice` のみ・課金なし）で
 `devices/snapshots/` に保存し、`make emulate-all` がオフラインで 3 機を比較する。段階 2 は
@@ -223,6 +230,6 @@ Spending Limitはデバイス単位なので、3機の配分合計をTerraform�
 - [x] ~~タスク定額~~ → $0.30/task
 - [x] ~~月次予算~~ → 100 USD
 - [x] ~~QPU Spending Limit~~ → 初期値0 USD、3機合計の設定上限300 USD
-- [x] ~~S3リージョン~~ → QPUはeu-north-1、SV1/DM1はeu-west-2
+- [x] ~~S3リージョン~~ → **eu-north-1 のみ、バケット 1 つ**（2026-09-15、ADR-0004。SV1/DM1 を使わないため）
 - [x] ~~反復的 QPE（feed-forward）を実装するか~~ → 実装済み。t=2 では λ が動かないので比較軸として残すのみ、既定は通常 QPE（2026-09-14、issue #7）
-- [x] ~~ノイズあり検証に DM1 を挟むか~~ → 必須にしない（2026-09-14、issue #7）
+- [x] ~~ノイズあり検証に DM1 を挟むか~~ → 必須にしない（2026-09-14、issue #7）。2026-09-15 に SV1 ともども実行経路から外した（ADR-0004）

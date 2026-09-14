@@ -22,6 +22,19 @@ GIT_COMMIT := $(shell git rev-parse HEAD 2>/dev/null)
 
 export N A T SHOTS DEVICE ORACLE GIT_COMMIT
 
+# Guard for targets that reach AWS. (infra.mk has require_env for single variables;
+# this one checks the file itself.) Local simulation needs no .env, but anything that
+# talks to AWS reads its account, region, bucket and profiles from it, and a missing
+# file would otherwise mean empty strings and a confusing failure deeper in.
+define require_env_file
+	@test -f .env || { \
+		echo ""; \
+		echo "  .env is required for $(1). Local simulation does not need it."; \
+		echo "  cp .env.example .env  and fill in the values (.env is gitignored)."; \
+		echo ""; \
+		exit 1; }
+endef
+
 # Guard for targets whose implementation has not landed yet.
 # Fails loudly instead of silently doing nothing.
 define notimpl

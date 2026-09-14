@@ -133,6 +133,7 @@ def plan_submission(
     spending_lookup: SpendingLimitLookup = no_spending_limit_lookup,
     now: datetime | None = None,
     max_permutations: int | None = None,
+    campaign: str | None = None,
 ) -> SubmissionPlan:
     """Rebuild the program and run the full preflight against it.
 
@@ -148,6 +149,7 @@ def plan_submission(
         spending_lookup: How to read the service-side spending limit.
         now: Point in time for the freshness checks.
         max_permutations: Cap on the layout search, for fast tests.
+        campaign: Optional campaign tag for cost grouping; it grants no access.
 
     Returns:
         The plan, whose :attr:`SubmissionPlan.allowed` says whether every blocking check passed.
@@ -169,6 +171,7 @@ def plan_submission(
         max_cost_usd=max_cost_usd,
         spending_lookup=spending_lookup,
         now=now or datetime.now(UTC),
+        campaign=campaign,
     )
     return SubmissionPlan(
         device_key=device_key,

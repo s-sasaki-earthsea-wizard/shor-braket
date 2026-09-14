@@ -9,7 +9,7 @@ variable "aws_account_id" {
 # ---- Region / S3 (bucket itself is created in Phase 3) ----
 
 variable "results_bucket_region" {
-  description = "Region for the results bucket and the provider. Keep it on the primary QPU region."
+  description = "Region for the results bucket and the provider. Braket writes results to a bucket in the region the task was submitted to, and all three approved QPUs are in eu-north-1, so this is the only region the project uses (ADR-0004)."
   type        = string
   default     = "eu-north-1"
 }
@@ -17,18 +17,6 @@ variable "results_bucket_region" {
 variable "results_bucket_name" {
   description = "Results bucket name referenced by the IAM policies. Prefer the amazon-braket- prefix."
   type        = string
-}
-
-variable "simulator_region" {
-  description = "Region for SV1/DM1. They are absent from eu-north-1, so simulator tasks and their result bucket live elsewhere."
-  type        = string
-  default     = "eu-west-2"
-}
-
-variable "simulator_bucket_name" {
-  description = "Results bucket for simulator tasks, created in simulator_region. Braket writes results to a bucket in the region the task was submitted to."
-  type        = string
-  default     = null
 }
 
 variable "results_transition_days" {
@@ -52,9 +40,15 @@ variable "monitor_user_name" {
 }
 
 variable "execution_role_name" {
-  description = "Role that may create quantum tasks. Assumed by the operator with MFA."
+  description = "Role for everyday task creation on IQM. Assumed by the operator with MFA. Carries an unconditional deny on AQT."
   type        = string
   default     = "ShorBraketExecutionRole"
+}
+
+variable "aqt_role_name" {
+  description = "Role that may create tasks on AQT and nothing else. Assumed by the operator with MFA. Keeping it separate is what makes reaching the 13.6x device a deliberate, CloudTrail-visible act (ADR-0004)."
+  type        = string
+  default     = "ShorBraketAqtRole"
 }
 
 # ---- Budget / alerts (used in Phase 3) ----
