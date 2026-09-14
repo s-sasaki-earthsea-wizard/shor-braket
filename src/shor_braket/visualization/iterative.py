@@ -193,6 +193,18 @@ def generate_iterative_figures(report: Mapping[str, Any], artifact_dir: Path) ->
     return figures
 
 
+def _verdict_cells(metrics: Mapping[str, Any]) -> str:
+    """Pass / signal cells of the configuration table (blank for reports without a verdict)."""
+    verdict = metrics.get("verdict")
+    if not verdict:
+        return " | "
+    return (
+        f"{'✅' if verdict['passed'] else '❌'} | "
+        f"{'✅' if verdict['signal_detected'] else '❌'} "
+        f"({verdict['signal_fraction_sampled']:.3f} ± {verdict['standard_error']:.3f})"
+    )
+
+
 def _pick_shots(shots_list: list[int]) -> list[int]:
     preferred: list[int] = [n for n in (1000, 4000, 20_000) if n in shots_list]
     if preferred:
@@ -213,17 +225,18 @@ def iterative_markdown(report: Mapping[str, Any]) -> str:
     lines.append(
         "| デバイス | oracle | 方式 | 配置 (物理 qubit) | SWAP | 2q (論理→ネイティブ) | prx | "
         "cc_prx | measure_ff | 深さ | 誤り予算 B | exp(−B) | 検証 | TVD (exact) | "
-        "λ (TVD) | λ (サポート質量) | Hellinger | 位数復元率 (基準 0.75) |"
+        "λ (TVD) | λ (サポート質量) | Hellinger | 位数復元率 (基準 0.75) | 合否 (λ ≥ 0.5) | "
+        "信号 (> 3 SE) |"
     )
     lines.append(
-        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|"
+        "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---|---:|---:|---:|---:|---:|---|---|"
     )
     for name, config in report["configurations"].items():
         device, mode, method = name.split("/")
         if "layout" not in config:
             lines.append(
                 f"| {_name(report, device)} | {mode} | {method} | | | | | | | | | | "
-                f"❌ {config['validation']['message'][:70]} | | | | | |"
+                f"❌ {config['validation']['message'][:70]} | | | | | | | |"
             )
             continue
         roles = ", ".join(f"{q}={r}" for q, r in config["layout"]["roles"].items())
@@ -238,19 +251,21 @@ def iterative_markdown(report: Mapping[str, Any]) -> str:
             f"{gates['native_depth']} | {budget:.3f} | {np.exp(-budget):.2f} | "
         )
         if not config["validation"]["accepted"]:
-            lines.append(head + f"❌ {config['validation']['message'][:60]} | | | | | |")
+            lines.append(head + f"❌ {config['validation']['message'][:60]} | | | | | | | |")
             continue
         m = config["metrics"]
         lines.append(
             head + f"✅ | {m['exact_tvd']:.3f} | {m['signal_fraction_exact']:.3f} | "
             f"{m['support_signal_fraction_exact']:.3f} | {m['hellinger_fidelity_exact']:.3f} | "
-            f"{m['order_recovery_rate']:.3f} |"
+            f"{m['order_recovery_rate']:.3f} | {_verdict_cells(m)} |"
         )
     lines.append("")
     lines.append(
         "λ (TVD) = 1 − TVD / 0.75、λ (サポート質量) = (理想サポート上の質量 − 1/4) / (3/4)。"
         "どちらも一様混合モデルの信号残存率で、厳密分布では両者はほぼ一致する。"
         "反復 QPE の B には measure_ff の読み出し誤りと cc_prx の 1q 誤りを含む。"
+        "合否はエミュレーションの厳密 λ ≥ 0.5、信号検出は標本のサポート質量由来 λ が標準誤差の"
+        " 3 倍を超えること（2026-09-14 の決定、issue #7）。"
     )
     lines.append("")
     diagnostics = [

@@ -9,6 +9,12 @@ from typing import Any
 import numpy as np
 from numpy.typing import NDArray
 
+# Pass criteria decided on 2026-09-14 (issue #7).
+EXACT_TVD_LIMIT = 1e-9  # noiseless simulator, shots = 0: anything larger is a wiring bug
+SAMPLED_FLOOR_FACTOR = 1.5  # noiseless simulator, sampled run: TVD <= factor * sampling floor
+SIGNAL_FRACTION_PASS = 0.5  # emulator / QPU: at least half of the period signal survives
+SIGNAL_DETECTION_SIGMAS = 3.0  # emulator / QPU: "signal present" if lambda > sigmas * SE
+
 
 def expected_joint_probabilities(
     *, modulus: int, base: int, count_qubit_count: int, work_qubit_count: int
@@ -88,6 +94,60 @@ def support_signal_fraction(support_mass: float, support_fraction: float) -> flo
     counts, so its sampled value is unbiased whatever the number of shots.
     """
     return (support_mass - support_fraction) / (1.0 - support_fraction)
+
+
+def support_signal_fraction_error(
+    support_mass: float, support_fraction: float, shots: int
+) -> float:
+    """Standard error of the support-mass signal fraction for a multinomial sample."""
+    if shots < 1:
+        raise ValueError("shots must be positive")
+    mass = min(max(support_mass, 0.0), 1.0)
+    return float(np.sqrt(mass * (1.0 - mass) / shots) / (1.0 - support_fraction))
+
+
+def noiseless_verdict(
+    *, exact_tvd: float, sampled_tvd: float, expected: NDArray[np.float64], shots: int
+) -> dict[str, Any]:
+    """Pass / fail of a noiseless simulator run: exact TVD and sampled TVD against the floor."""
+    floor = sampling_floor(expected, shots)
+    exact_passed = exact_tvd <= EXACT_TVD_LIMIT
+    sampled_passed = sampled_tvd <= SAMPLED_FLOOR_FACTOR * floor
+    return {
+        "exact_tvd": exact_tvd,
+        "exact_limit": EXACT_TVD_LIMIT,
+        "exact_passed": exact_passed,
+        "sampled_tvd": sampled_tvd,
+        "sampling_floor": floor,
+        "sampled_limit": SAMPLED_FLOOR_FACTOR * floor,
+        "sampled_passed": sampled_passed,
+        "passed": exact_passed and sampled_passed,
+    }
+
+
+def noisy_verdict(
+    *,
+    signal_fraction_exact: float,
+    support_mass_sampled: float,
+    support_fraction: float,
+    shots: int,
+) -> dict[str, Any]:
+    """Pass / fail of an emulated or hardware run.
+
+    The pass line uses the exact emulated signal fraction; the detection test uses the sampled
+    support-mass estimate against its standard error (both are recorded, per issue #7).
+    """
+    sampled = support_signal_fraction(support_mass_sampled, support_fraction)
+    error = support_signal_fraction_error(support_mass_sampled, support_fraction, shots)
+    return {
+        "pass_line": SIGNAL_FRACTION_PASS,
+        "signal_fraction_exact": signal_fraction_exact,
+        "passed": signal_fraction_exact >= SIGNAL_FRACTION_PASS,
+        "signal_fraction_sampled": sampled,
+        "standard_error": error,
+        "detection_sigmas": SIGNAL_DETECTION_SIGMAS,
+        "signal_detected": sampled > SIGNAL_DETECTION_SIGMAS * error,
+    }
 
 
 def _summary(values: NDArray[np.float64]) -> dict[str, float]:

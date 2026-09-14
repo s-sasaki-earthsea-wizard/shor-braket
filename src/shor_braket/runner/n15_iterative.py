@@ -48,6 +48,7 @@ from numpy.typing import NDArray
 from shor_braket.analysis.distribution import (
     expected_joint_probabilities,
     hellinger_fidelity,
+    noisy_verdict,
     sampling_floor,
     sampling_sweep,
     signal_fraction,
@@ -191,7 +192,7 @@ def _scores(
     *,
     shots: int,
     error_budget: float,
-) -> dict[str, float]:
+) -> dict[str, Any]:
     """Metrics shared by both methods so they can be compared column by column."""
     uniform = np.full_like(expected, 1.0 / expected.size)
     support = expected > PROBABILITY_TOLERANCE
@@ -214,6 +215,12 @@ def _scores(
         "hellinger_fidelity_exact": hellinger_fidelity(exact, expected),
         "predicted_signal_fraction": exp(-error_budget),
         "sampling_floor_formula": sampling_floor(exact, shots),
+        "verdict": noisy_verdict(
+            signal_fraction_exact=support_signal_fraction(exact_mass, support_fraction),
+            support_mass_sampled=sampled_mass,
+            support_fraction=support_fraction,
+            shots=shots,
+        ),
     }
 
 

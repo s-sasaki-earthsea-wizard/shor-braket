@@ -309,7 +309,10 @@ def emulate_n15_iterative(
         typer.Option("--visualize/--no-visualize", help="Render figures and a Markdown report."),
     ] = True,
 ) -> None:
-    """Emulate the iterative (feed-forward) N = 15 circuit next to the standard one (offline)."""
+    """Emulate the iterative (feed-forward) N = 15 circuit next to the standard one (offline).
+
+    Comparison axis only: the standard circuit stays the default (see quantum/n15_iterative.py).
+    """
     keys = list(QPU_CANDIDATES) if device == "all" else [device]
     modes = list(ORACLE_MODES) if oracle == "all" else [oracle]
     if any(key not in QPU_CANDIDATES for key in keys):

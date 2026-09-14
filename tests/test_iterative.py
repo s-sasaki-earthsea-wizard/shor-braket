@@ -14,6 +14,8 @@ from typer.testing import CliRunner
 from shor_braket.analysis.distribution import (
     expected_joint_probabilities,
     hellinger_fidelity,
+    noiseless_verdict,
+    noisy_verdict,
     sampling_floor,
     sampling_sweep,
     support_signal_fraction,
@@ -185,6 +187,7 @@ def test_iterative_configuration_is_accepted_and_scored(garnet_snapshot):
     assert 0.0 < m["signal_fraction_exact"] < 1.0
     assert abs(m["signal_fraction_exact"] - m["support_signal_fraction_exact"]) < 0.1
     assert 0.0 < m["predicted_signal_fraction"] < 1.0
+    assert set(m["verdict"]) >= {"passed", "signal_detected", "standard_error"}
     assert m["gate_noise_only_tvd"] < m["exact_tvd"]
     assert m["order_recovery_baseline_uniform_y"] == 0.75
     roles = set(config["layout"]["roles"].values())
@@ -227,6 +230,27 @@ def test_sampling_helpers_match_a_monte_carlo():
         sweep["rows"][0]["signal_fraction_tvd"]["mean"]
         < sweep["rows"][1]["signal_fraction_tvd"]["mean"]
     )
+
+
+def test_verdicts_apply_the_decided_criteria():
+    expected = _expected(2)
+    floor = sampling_floor(expected, 1000)
+    good = noiseless_verdict(
+        exact_tvd=1e-15, sampled_tvd=1.2 * floor, expected=expected, shots=1000
+    )
+    bad = noiseless_verdict(exact_tvd=1e-6, sampled_tvd=2.0 * floor, expected=expected, shots=1000)
+    assert good["passed"] and good["sampled_limit"] == 1.5 * floor
+    assert not bad["exact_passed"] and not bad["sampled_passed"] and not bad["passed"]
+
+    strong = noisy_verdict(
+        signal_fraction_exact=0.7, support_mass_sampled=0.775, support_fraction=0.25, shots=2000
+    )
+    weak = noisy_verdict(
+        signal_fraction_exact=0.02, support_mass_sampled=0.26, support_fraction=0.25, shots=500
+    )
+    assert strong["passed"] and strong["signal_detected"]
+    assert abs(strong["standard_error"] - 0.0125) < 0.001
+    assert not weak["passed"] and not weak["signal_detected"]
 
 
 def test_report_is_written_for_the_iterative_method(snapshot_dir, tmp_path):

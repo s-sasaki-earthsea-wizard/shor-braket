@@ -17,7 +17,9 @@ from braket.circuits.serialization import IRType
 from numpy.typing import NDArray
 
 from shor_braket.analysis.distribution import (
+    EXACT_TVD_LIMIT,
     expected_joint_probabilities,
+    noiseless_verdict,
     sampled_probability_vector,
     total_variation_distance,
 )
@@ -32,7 +34,7 @@ from shor_braket.quantum.reference import ReferenceCircuit, build_reference_circ
 from shor_braket.runner.local import run_local
 from shor_braket.visualization import generate_walkthrough
 
-EXACT_TVD_TOLERANCE = 1e-10
+EXACT_TVD_TOLERANCE = EXACT_TVD_LIMIT
 
 
 def _circuit_hash(reference: ReferenceCircuit) -> str:
@@ -156,6 +158,12 @@ def run_reference_simulation(
         total_qubit_count=reference.circuit.qubit_count,
     )
     sampled_tvd = total_variation_distance(sampled_probabilities, expected_probabilities)
+    verdict = noiseless_verdict(
+        exact_tvd=exact_tvd,
+        sampled_tvd=sampled_tvd,
+        expected=expected_probabilities,
+        shots=shots,
+    )
 
     work_dimension = 1 << len(reference.work_qubits)
     exact_count_values = {
@@ -223,7 +231,7 @@ def run_reference_simulation(
             "distribution": "count-work-joint",
             "exact_tvd": exact_tvd,
             "exact_tvd_tolerance": EXACT_TVD_TOLERANCE,
-            "passed": exact_tvd <= EXACT_TVD_TOLERANCE and classical_order in exact_orders,
+            "passed": verdict["exact_passed"] and classical_order in exact_orders,
             "factoring_succeeded": exact_factors is not None,
             "exact_support": _support(
                 actual_probabilities,
@@ -235,6 +243,9 @@ def run_reference_simulation(
         "sampled": {
             "measurement_counts": dict(sorted(measurement_counts.items())),
             "joint_tvd": sampled_tvd,
+            "sampling_floor": verdict["sampling_floor"],
+            "joint_tvd_limit": verdict["sampled_limit"],
+            "passed": verdict["sampled_passed"],
             "recovered_orders": sampled_orders,
             "factorization": list(sampled_factors) if sampled_factors else None,
         },

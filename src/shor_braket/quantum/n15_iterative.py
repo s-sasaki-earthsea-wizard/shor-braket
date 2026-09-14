@@ -14,6 +14,15 @@ The joint distribution of ``(y, work)`` is the same as for the standard circuit 
 what changes is the hardware footprint: one count qubit next to the work register instead of
 ``t``, no inverse-QFT phases, and record qubits that need no coupler at all. The modular
 multiplications are still the N = 15 swap network, so the hint level is unchanged.
+
+Why this circuit is kept but is not the default (decided 2026-09-14, issue #7): on the approved
+devices at ``t = 2`` it leaves the signal fraction where the standard circuit has it (Emerald
+0.70 against 0.73, Garnet 0.53 against 0.54). The SWAP count is set by the Fredkin triangles of
+the controlled multiplications, not by the count register, and the removed inverse-QFT phase
+(two CNOTs) is paid back by the mid-circuit readout and four ``cc_prx``. Its real advantage, a
+qubit count independent of ``t``, does not apply to ``r = 4``, where every round beyond
+``t = 2`` is an identity. It stays as a comparison axis for larger orders and as the reference
+implementation of the feed-forward constraints.
 """
 
 from __future__ import annotations
