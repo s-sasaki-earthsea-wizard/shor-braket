@@ -49,30 +49,49 @@ OpenQASM 3 のテキストを直接ハッシュしない。理由:
 - SDK バージョン間で出力フォーマットが変わる
 - 命令の順序が意味的に等価でも異なる文字列になりうる
 
-### 3.2 正規化の内容（実装時に確定）
+### 3.2 正規化の内容（2026-09-14 実装確定、`gate/circuit_hash.py`）
 
-1. Circuit の instruction 列を `(gate_name, sorted(targets), sorted(controls), rounded(angles))` の
-   タプル列に変換
-2. 角度パラメータは有限桁に丸める（浮動小数の表現差を吸収）
-3. Result type（`Probability`, `Sample` 等）も含める
-4. **ショット数は含めない** — 同一回路を異なるショット数で実行できるようにするため。
+1. Circuit の instruction 列を `{op, targets, params, controls, control_state, power}` の
+   辞書列に変換し、`canonical_form_version` を添えて JSON 化してから SHA-256 を取る
+2. **target の順序は保存する。** この節の初稿は `sorted(targets)` と書いていたが、それをやると
+   `cnot(0, 1)` と `cnot(1, 0)` が同じハッシュになる。制御と標的の入れ替わった別回路が
+   validated レコードを共有してしまうので、順序は意味として扱う
+3. 角度パラメータは 12 桁に丸める（浮動小数の表現差を吸収。`-0.0` は `0.0` に畳む）。
+   整数パラメータ（`measure_ff` / `cc_prx` のフィードバックキー）は整数のまま残す
+4. コンパイラディレクティブ（verbatim box）も含める。verbatim の有無は別の回路である
+5. 物理 qubit 番号を含める。配置が変われば実機で走る回路が変わる
+6. Result type（`Probability`, `Sample` 等）も含める
+7. **ショット数は含めない** — 同一回路を異なるショット数で実行できるようにするため。
    ショット数は別途 L2 で制御する
+
+正規化の規則を変えたら `CANONICAL_FORM_VERSION` を上げる。既存レコードは投入前検査で弾かれる。
 
 ### 3.3 ハッシュに含めるメタデータ
 
-`circuit_hash` とは別に、レコードには以下を平文で保持する。
+`circuit_hash` とは別に、レコードには以下を平文で保持する（`gate/record.py`）。
 
 ```json
 {
+  "schema_version": 1,
   "circuit_hash": "sha256:...",
-  "problem": { "N": 6, "a": 5, "t": 2, "n_work": 3 },
-  "oracle_mode": "generic-repeated",
-  "tags": { "project": "shor-braket", "campaign": "" },
-  "force_quantum": true,
-  "sdk_version": "amazon-braket-sdk==x.y.z",
+  "issued_at": "...", "expires_at": "...",
+  "device":  { "key": "garnet", "arn": "...", "name": "IQM Garnet" },
+  "snapshot": { "capabilities_sha256": "sha256:...", "calibration_updated_at": "...",
+                "fetched_at": "..." },
+  "problem": { "modulus": 15, "base": 7, "count_qubits": 2, "work_qubits": 4,
+               "n_specific_decomposition": true },
+  "oracle_mode": "generic-constant",
+  "circuit": { "canonical_form_version": 1, "physical_qubits": [...], "roles": {...},
+               "swap_count": 14, "error_budget": 0.74, "native_two_qubit": 88 },
+  "emulation": { "shots": 20000, "validation": {...}, "verdict": {...}, "metrics": {...} },
+  "environment": { "amazon_braket_sdk": "1.127.0", ... },
+  "artifact": "runs/raw/n15-emulation-.../result.json",
   "git_commit": "..."
 }
 ```
+
+`oracle_mode` を必ず残すのは、手掛かりの量が記録から落ちないようにするため（CLAUDE.md の前提 4）。
+タグ集合（`project` / `campaign`）は未決なのでまだ入れていない。
 
 ---
 
@@ -126,52 +145,77 @@ Phase 1 の行列参照回路は A1〜A3 の基準値を作るが、`qpu_eligibl
 ```
 runs/
 ├── validated/
-│   └── <circuit_hash>.json     # 小さいマニフェスト。git 管理対象
+│   └── <hex digest>.json       # 小さいマニフェスト。git 管理対象
 └── raw/
     └── <task_id>/              # 生の測定結果。gitignore
 ```
+
+ファイル名は `sha256:` を落とした 64 桁の hex。ディレクトリ走査なしで引けるようにするため。
+レコードには測定データそのものを入れず、`artifact` フィールドで raw の run ディレクトリを指す。
+`make validated` が一覧を出す。
 
 validated レコードを **コミット対象にする**のは監査性のため。
 「どの回路が、いつ、どの検証を通って実機に投入されたか」を git 履歴として追える。
 
 ### 4.3 レコードの失効
 
-以下の場合、既存の validated レコードは無効とする。
+以下の場合、既存の validated レコードは無効とする。失効判定はレコード内のメタデータで行い、
+`submit` 時に `gate/preflight.py` が検査する。
 
-- SDK のメジャーバージョンが変わった
-- 対象デバイスが変わった（デバイスごとにトランスパイル結果が異なるため A5 が再検証を要する）
-- レコードの発行から一定期間（既定 30 日）が経過した
+| 条件 | 検査 | 効き方 |
+|---|---|---|
+| 回路が編集された | `circuit_hash` が動く | レコードが見つからない（最も強い） |
+| **デバイスが再校正された** | `snapshot.capabilities_sha256` の一致 | **実質の主判定**。IQM は日次で校正が変わり、古い校正での λ は今日の機械についての主張ではない |
+| 対象デバイスが変わった | `device.arn` の一致 | 拒否 |
+| SDK のメジャーバージョンが変わった | `environment.amazon_braket_sdk` の major | 拒否 |
+| 正規化の規則が変わった | `circuit.canonical_form_version` | 拒否 |
+| 発行から一定期間が経過した | `expires_at`（既定 30 日） | 拒否。上の 5 つが全部動かなかった場合の保険 |
 
-失効判定はレコード内のメタデータで行い、`submit` 時に検査する。
+`GetDevice` は無料でエミュレーションは秒単位なので、投入直前に校正を取り直してレコードを
+再発行する運用でも負担は無い。
 
 ---
 
 ## 5. submit の動作
 
+`make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000` の実出力（2026-09-14）:
+
 ```
-$ make submit-qpu N=6 DEVICE=garnet SHOTS=1000
-
-[gate] building circuit          N=6 a=5 t=2 oracle=generic-repeated
-[gate] circuit_hash              sha256:3f2a...
-[gate] validated record          FOUND  (runs/validated/3f2a....json)
-[gate]   simulated at            2026-09-07T12:34:56Z
-[gate]   assertions              A1 ✓  A2 ✓  A3 ✓  A4 ✓  A5 ✓
-[gate]   sdk version             match
-[gate]   age                     0 days  (limit 30)
-
-[cost] device                    IQM Garnet (arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet)
-[cost] shots                     1000
-[cost] estimated                 $X.XX   (task $A + 1000 x $B)
-[cost] spending limit            $L.LL
-[cost] current + queued          $U.UU
-[cost] remaining                 $R.RR
-[cost] active period             2026-..-.. → 2026-..-..
-
-Proceed? [y/N]
+[gate] device                   IQM Garnet (garnet)
+[gate] circuit_hash             sha256:01ebd46b9ebab1ab...
+[gate] qpu eligible circuit     OK    verbatim program with no dense matrix gates
+[gate] snapshot device          OK    snapshot for garnet
+[gate] validated record         OK    garnet / generic-constant, issued 2026-09-14T12:12:08Z
+[gate] device match             OK    record and target are the same device
+[gate] calibration current      OK    calibration 2026-09-13T16:28:09Z still matches the emulation
+[gate] record fresh             OK    issued 2026-09-14T12:12:08Z, expires 2026-10-14T12:12:08Z
+[gate] sdk major match          OK    1.127.0
+[gate] hash form match          OK    canonical form v1
+[gate] emulation verdict        OK    signal fraction 0.541 >= 0.5
+[gate] shots in range           OK    2000 within [1, 20000]
+[gate] cost under ceiling       OK    3.20000 USD against a ceiling of 10 USD
+[gate] spending limit           FAIL  no spending limit could be read for this device ...
+[cost] arn                      arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet
+[cost] shots                    2000
+[cost] estimated                3.20000 USD
+[cost] per-task ceiling         10 USD
+[cost] spending limit           unavailable (issue #3)
+[gate] verdict                  REFUSED
+[gate]   blocked by             spending limit: ...
 ```
+
+**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ。** これは issue #3 で
+Terraform がそれを作り、`braket:SearchSpendingLimits` を許可すれば開く。
+
+**読めない Spending Limit は「余裕がある」とみなさない。** 読めない場合も残額不足と同じく拒否する。
+サービス側の停止機構はこのリポジトリの外にある唯一の防御なので、その不在を黙って通さない。
 
 **確認プロンプトは必須。** `--yes` フラグでスキップできるが、その場合も
-`--max-cost` の指定を必須とし、推定コストが超えたら中断する。
+`--max-cost` の指定を必須とし、推定コストが超えたら中断する（指定が無ければ終了コード 2）。
+
+実際のタスク作成（`AwsQuantumTask.create`）は**まだ実装しない**。クライアント側のゲートは
+完成したが、その背後に立つべき AWS 側のガードレールが issue #3 で未完のため、
+`runner/submit.py` の `submit()` は常に `NotImplementedError` を投げる。
 
 ---
 
@@ -302,7 +346,8 @@ AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SN
 - [ ] runner が付与するタグの集合を確定する。`project` は常時、`campaign` は `.env` の
       `BRAKET_CAMPAIGN` が非空のときのみ。`campaign` は AQT のタグゲートの鍵であり
       コスト配分タグでもある（`infra/iam/README.md` §6.1）
-- [ ] validated レコードの有効期限 30 日は妥当か
+- [ ] validated レコードの有効期限 30 日は妥当か（実装は 30 日だが、実質の主判定は
+      `capabilities_sha256` の一致になった。日数を 7 日に縮める提案は §4.3）
 - [ ] `--yes` を CI から使う運用を認めるか（現時点では想定しない）
 - [x] ~~実機実行結果に対する「合格/不合格」判定を設けるか~~ → λ ≥ 0.5 で合格、λ > 3 × 標準誤差で「信号あり」を別に記録（2026-09-14、issue #7）
 - [ ] 月次累計の取得元（Cost Explorer API は 1 リクエスト $0.01 かかる。

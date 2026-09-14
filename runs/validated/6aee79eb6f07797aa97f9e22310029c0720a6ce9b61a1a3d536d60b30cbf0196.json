@@ -1,0 +1,107 @@
+{
+  "artifact": "runs/raw/n15-emulation-20260914T121731680422Z/result.json",
+  "circuit": {
+    "canonical_form_version": 1,
+    "error_budget": 0.7073841363217805,
+    "gate_family": "prx-cz",
+    "instruction_count": 850,
+    "native_depth": 584,
+    "native_two_qubit": 161,
+    "physical_qubits": [
+      25,
+      32,
+      33,
+      34,
+      40,
+      41
+    ],
+    "register_order_physical": [
+      32,
+      33,
+      41,
+      34,
+      25,
+      40
+    ],
+    "roles": {
+      "25": "w1",
+      "32": "c0",
+      "33": "c1",
+      "34": "w2",
+      "40": "w0",
+      "41": "w3"
+    },
+    "swap_count": 25,
+    "used_qubits": [
+      25,
+      32,
+      33,
+      34,
+      40,
+      41
+    ]
+  },
+  "circuit_hash": "sha256:6aee79eb6f07797aa97f9e22310029c0720a6ce9b61a1a3d536d60b30cbf0196",
+  "device": {
+    "arn": "arn:aws:braket:eu-north-1::device/qpu/iqm/Emerald",
+    "key": "emerald",
+    "name": "IQM Emerald"
+  },
+  "emulation": {
+    "backend": "braket_dm",
+    "class": "local-emulator-n15",
+    "ideal_check_tvd": 2.046973701652633e-15,
+    "metrics": {
+      "exact_tvd": 0.3440157865956863,
+      "ideal_support_mass_exact": 0.6559842134043161,
+      "ideal_support_mass_sampled": 0.6765,
+      "sampled_tvd": 0.3235,
+      "signal_fraction_exact": 0.541312284539085,
+      "signal_fraction_sampled": 0.5686666666666667
+    },
+    "shots": 2000,
+    "validation": {
+      "accepted": true,
+      "error_type": null,
+      "message": ""
+    },
+    "verdict": {
+      "detection_sigmas": 3.0,
+      "pass_line": 0.5,
+      "passed": true,
+      "signal_detected": true,
+      "signal_fraction_exact": 0.541312284539085,
+      "signal_fraction_sampled": 0.5686666666666667,
+      "standard_error": 0.013947448990167819
+    }
+  },
+  "environment": {
+    "amazon_braket_default_simulator": "1.40.1.post0",
+    "amazon_braket_sdk": "1.127.0",
+    "matplotlib": "3.11.2",
+    "networkx": "3.6.1",
+    "numpy": "2.5.3"
+  },
+  "expires_at": "2026-10-14T12:17:56.853728+00:00",
+  "git_commit": "47368fc8acc56e09b759bc089f70a2f52b7124fa",
+  "issued_at": "2026-09-14T12:17:56.853728+00:00",
+  "notes": {
+    "claim": "Observation of period-4 signal survival under calibration noise; not a factoring claim. The oracle is the N = 15 swap network and t = 2 uses r <= 4.",
+    "t_rationale": "t = 2 represents the phases s/4 exactly and avoids identity multipliers; it uses the knowledge that r <= 4."
+  },
+  "oracle_mode": "generic-repeated",
+  "problem": {
+    "base": 7,
+    "classical_order": 4,
+    "count_qubits": 2,
+    "modulus": 15,
+    "n_specific_decomposition": "15 = 2^4 - 1: multiplication by 2^k is a bit rotation, by 15 - 2^k a rotation followed by NOT",
+    "work_qubits": 4
+  },
+  "schema_version": 1,
+  "snapshot": {
+    "calibration_updated_at": "2026-09-13T05:12:49.375710+00:00",
+    "capabilities_sha256": "sha256:a46149e908dbb306dcf3650b73c8d897cc1e2b88f7f126f0c785c770c9cac1ce",
+    "fetched_at": "2026-09-13T23:33:32.154068+00:00"
+  }
+}

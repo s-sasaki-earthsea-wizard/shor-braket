@@ -14,8 +14,8 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 |---|---|---|---|
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
-| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | 🚧 同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward、Garnet / Emerald でエミュレーション）・TVD の標本床の解析まで実装。validated レコードと投入ゲートは未着手 |
-| Phase 3 | Terraform による AWS リソース定義 | 次 | ⬜ IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
+| **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | Phase 4 | Braket オンデマンドシミュレータ (SV1) 実行 | 低 | ⬜ 未着手 |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
@@ -26,6 +26,14 @@ S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
 連分数による位数復元、3 × 5 の導出、同時分布検証、JSON 結果保存を実装済み。
 この参照回路は密行列を使うため **QPU 投入不可**。QPU 互換回路と投入ゲートは別実装とする。
+
+**2026-09-14: validated レコードと投入ゲートを実装。** QPU 互換回路をエミュレートして合格した構成に
+`runs/validated/<hash>.json` を発行し、`make submit-qpu` が投入前に回路ハッシュ・対象デバイス・校正の鮮度・
+SDK バージョン・エミュレーションの合否・ショット数・費用・Spending Limit の残額を検査する。
+回路ハッシュは OpenQASM テキストではなく正規化した IR に対して取るので、空白や SDK の出力形式では動かず、
+配置や角度が変われば動く。密行列の参照回路は `Unitary` と verbatim box の不在で明示的に拒否される。
+**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ**で、これは
+[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。実タスクの作成はまだ行わない。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** IQM Garnet / Emerald、AQT IBEX Q1 の校正データを
 `devices/snapshots/` にコミットし、`make emulate-all` が Docker 内（ネットワーク無効）で verbatim 検証と
@@ -288,7 +296,7 @@ MFA 必須の管理者ロールを作り、root キーを削除する。`make tf
 make help          # 全ターゲットの一覧
 make devices       # Braket デバイスの現況確認（無料・読み取りのみ）
 make device-snapshot  # 3 機の校正データを devices/snapshots へ保存（GetDevice のみ・課金なし）
-make validated     # 検証済みレコードの一覧
+make validated     # 検証済みレコードの一覧（無料・オフライン）
 make iam-lint      # IAM ポリシー JSON の構文検証
 make iam-render    # .env の値でプレースホルダを展開
 make iam-verify    # IAM ガードレールの効果をポリシーシミュレータで検証（課金なし）
@@ -312,15 +320,23 @@ make emulate-n15
 make emulate-n15-iterative
 make emulate-n15-iterative N15_DEVICE=garnet N15_ORACLE=generic-constant N15I_SHOTS=20000
 
-# 2. 検証済みレコードの確認
-make validated
+# 2. 投入する回路のハッシュを確認する（回路を組むだけ。実行はしない）
+make circuit DEVICE=garnet ORACLE=generic-constant
 
-# 3. Braket オンデマンドシミュレータ (SV1) で実行
-make submit-sv1 N=6
+# 3. エミュレートして、合格した構成に validated レコードを発行する（無料・オフライン）
+make validate-n15 N15_DEVICE=garnet N15_ORACLE=generic-constant
+make validated     # 発行済みレコードの一覧
 
-# 4. 実機 QPU に投入（validated レコードが必須。コスト確認プロンプトあり）
-make submit-qpu N=6 DEVICE=garnet SHOTS=1000
+# 4. 実機 QPU への投入ゲートを回す（validated レコードが必須。コスト確認プロンプトあり）
+make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000
+
+# 5. Braket オンデマンドシミュレータ (SV1) で実行（未実装）
+make submit-sv1
 ```
+
+`make submit-qpu` は現状、回路側の検査をすべて通したうえで Spending Limit が読めないことを理由に
+拒否する。これは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。
+実タスクの作成はまだ実装していない。
 
 ---
 

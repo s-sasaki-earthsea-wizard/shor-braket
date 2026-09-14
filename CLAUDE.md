@@ -17,7 +17,9 @@ AWS リソースは Terraform 管理。
 Terraform で構築済みで、root アクセスキーも廃止済み。残りは GitHub issue #1–#5 に記録してある。
 **実機実行が現実味を帯びるまで再開しない。** 再開の入口は issue #1。
 
-issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。次に着手するのは issue #8（validated レコードと投入ゲート）。
+issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。**issue #8（validated レコードと投入ゲート）も
+2026-09-14 に実装完了。** 残る未決はタグ集合、レコードの有効期限の日数、`--yes` の運用、月次累計の取得元、
+IBEX の実行ウィンドウ運用。**次の作業は AWS 側（issue #4 → #1 → #2 → #3）。**
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
@@ -38,6 +40,15 @@ TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近�
 `--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。**次は issue #8 の validated レコードと投入ゲート。**
 SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（upstream 報告は本題の実験の後）。
 
+**2026-09-14: validated レコードと投入ゲートを実装した**（`gate/circuit_hash.py`、`gate/record.py`、
+`gate/preflight.py`、`gate/spending.py`、`runner/submit.py`、`make circuit` / `validate-n15` / `validated` /
+`submit-qpu`、issue #8）。回路ハッシュは OpenQASM テキストではなく**正規化した IR**（命令列の辞書を JSON 化）
+に対して取る。**target の順序は保存する**（`sorted(targets)` だと `cnot(0,1)` と `cnot(1,0)` が衝突する。
+docs/03 §3.2 の初稿を訂正した）。レコードの失効判定で実質の主判定になるのは日数ではなく
+`capabilities_sha256` の一致。**投入ゲートは回路側の検査を全部通り、止めているのは Spending Limit だけ**で、
+これは issue #3 が開く。`submit()` は常に `NotImplementedError` を投げる。
+**読めない Spending Limit を「余裕あり」とみなさない**（不在を黙って通さない）。
+
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
 `make setup` で Python 3.12・Braket SDK・開発ツールを構築する。
 ベースイメージは digest、Python 依存は `docker/requirements.txt` で固定。
@@ -46,7 +57,8 @@ SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（up
 `src/`、`tests/`、`runs/` と必要な設定だけをコンテナへ mount する。
 `src/shor_braket/runner/local.py` はローカル実行のみを担い、validated レコードは発行しない。
 `make sim` / `sim-all` は N=15 / N=6 の行列参照回路を実行して教材を生成する。
-**QPU 互換回路と投入ゲートは未実装**で、`make submit-*` は未実装ガードを維持する。
+`make validate-n15` がレコードを発行し、`make submit-qpu` が投入ゲートを回す（タスクは作らない）。
+`make submit-sv1` / `task-status` / `report` は未実装ガードを維持する。
 
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
@@ -120,7 +132,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 
 - `quantum/` は `Circuit` を返すだけで実行しない。実行は `runner/` の責務
 - 古典参照実装（`classical/order.py`）が常に真値を提供する。量子側の結果はこれと突き合わせる
-- 回路ハッシュは OpenQASM のテキストではなく **正規化した Braket IR** に対して取る
+- 回路ハッシュは OpenQASM のテキストではなく **正規化した Braket IR** に対して取る（`gate/circuit_hash.py`）。
+  **target の順序を sorted にしない**（制御と標的が入れ替わった回路が同じハッシュになる）。
+  正規化の規則を変えたら `CANONICAL_FORM_VERSION` を上げる
+- **クライアント側のゲートに検査を足しても防御は増えない。** `gate/preflight.py` は事故防止であって
+  セキュリティ境界ではない。AWS 側（IAM Deny、Spending Limit）から検査を移してこない
 - デバイス ARN をハードコードしない。論理名 → ARN のマップを設定ファイルに置き、
   起動時に `search-devices` で実在検証する
 - Braket SDK を第一級とする。Qiskit からの変換レイヤは挟まない
@@ -212,6 +228,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 信号の検出 | 標本のサポート質量由来 λ が標準誤差の 3 倍を超えれば「信号あり」を別に記録。位数復元率は合否に使わない | `analysis/distribution.py` |
 | ノイズ無しシミュレータの合否 | 厳密 TVD < 1e−9 かつ 標本 TVD ≤ 1.5 × Σ√(p(1−p)/(2πn))。両方を記録 | `runner/reference.py` |
 | DM1 | 必須にしない（LocalEmulator で足りる。AWS 経路の確認は SV1） | issue #7 |
+| 回路ハッシュ | 正規化した IR の JSON に SHA-256。target 順は保存、角度は 12 桁、verbatim と物理 qubit を含め、shots は含めない | `docs/03` §3.2、`gate/circuit_hash.py` |
+| レコードの失効 | 回路ハッシュ / 校正ハッシュ / ARN / SDK major / 正規化版 / 30 日。実質の主判定は校正ハッシュ | `docs/03` §4.3 |
+| Spending Limit が読めないとき | 拒否する（余裕とみなさない） | `gate/preflight.py` |
 
 ---
 
@@ -221,7 +240,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 |---|---|---|---|
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
-| 2 | ローカルシミュレータ検証と実行ゲート | **高** | 🚧 同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析（2026-09-14）まで。validated レコード・投入ゲートは未着手 |
-| 3 | Terraform による AWS リソース定義 | 低 | ⏸️ **中断中**。IAM は構築済み（2026-09-13）。残りは issue #1–#4 |
+| 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
+| 3 | Terraform による AWS リソース定義 | **高** | 🚧 **次はここ**。IAM は構築済み（2026-09-13）。残りは issue #4 → #1 → #2 → #3 |
 | 4 | SV1 実行 | 低 | ⬜ |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ |
