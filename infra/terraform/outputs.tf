@@ -11,6 +11,11 @@ output "execution_role_arn" {
   sensitive = true
 }
 
+output "aqt_role_arn" {
+  value     = aws_iam_role.aqt.arn
+  sensitive = true
+}
+
 output "operator_mfa_serial" {
   description = "Serial the operator's virtual MFA device will have once registered under the same name."
   value       = "arn:aws:iam::${local.account_id}:mfa/${aws_iam_user.operator.name}"
@@ -28,6 +33,15 @@ output "aws_config_snippet" {
     [profile shor-braket-exec]
     source_profile   = shor-braket-ro
     role_arn         = ${aws_iam_role.execution.arn}
+    mfa_serial       = arn:aws:iam::${local.account_id}:mfa/${aws_iam_user.operator.name}
+    region           = ${var.results_bucket_region}
+    duration_seconds = 3600
+
+    # AQT only. A separate AssumeRole so that reaching the expensive device is a deliberate,
+    # CloudTrail-visible act (ADR-0004). Use it for `make submit-qpu DEVICE=ibex` and nothing else.
+    [profile shor-braket-aqt]
+    source_profile   = shor-braket-ro
+    role_arn         = ${aws_iam_role.aqt.arn}
     mfa_serial       = arn:aws:iam::${local.account_id}:mfa/${aws_iam_user.operator.name}
     region           = ${var.results_bucket_region}
     duration_seconds = 3600

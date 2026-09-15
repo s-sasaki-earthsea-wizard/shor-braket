@@ -2,12 +2,8 @@
 
 Braket 実行用の IAM 設計。**root アカウントのアクセスキーで実行しないこと。**
 
-> **優先度は低い。** まずローカルシミュレータ（Phase 1–2）を動かす。
-> ここは Phase 3 以降で使うが、設計だけ先に固めてある。
-
-Phase 3 で Terraform 化する。それまでは手動でアタッチできるよう JSON を置いてある。
-Terraform 化するときは `templatefile("${path.module}/../iam/*.json", {...})` で読み込めば
-二重管理を避けられる。
+> **Terraform 化済み**（`../terraform/iam.tf`、2026-09-13 に初回 apply）。この JSON が唯一の定義で、
+> Terraform は `file()` + `replace()` で読み込む。ここを変えたら `make tf-plan` → `tf-apply`。
 
 ---
 
@@ -78,9 +74,18 @@ role_arn       = arn:aws:iam::<ACCOUNT_ID>:role/ShorBraketExecutionRole
 mfa_serial     = arn:aws:iam::<ACCOUNT_ID>:mfa/shor-braket-operator
 region         = eu-north-1
 duration_seconds = 3600
+
+# AQT 専用。IBEX に投げるときだけ使う (ADR-0004)
+[profile shor-braket-aqt]
+source_profile = shor-braket-ro
+role_arn       = arn:aws:iam::<ACCOUNT_ID>:role/ShorBraketAqtRole
+mfa_serial     = arn:aws:iam::<ACCOUNT_ID>:mfa/shor-braket-operator
+region         = eu-north-1
+duration_seconds = 3600
 ```
 
-`shor-braket-exec` を使うと AWS CLI / SDK が MFA コードを対話的に要求する。
+`terraform -chdir=infra/terraform output -raw aws_config_snippet` が実値入りの同じ内容を出す。
+`shor-braket-exec` / `shor-braket-aqt` を使うと AWS CLI / SDK が MFA コードを対話的に要求する。
 セッションは 1 時間で失効する。
 
 **この分割の実効性**: 読み取りプロファイルで `submit` を叩いても `AccessDenied` になる。
@@ -207,8 +212,8 @@ arn:aws:braket:<region>:*:device/quantum-simulator/<provider>/<device_id>
 `search-devices` が返す実 ARN はアカウント部が空（`arn:aws:braket:eu-north-1::device/...`）だが、
 **ポリシーではアカウント部に `*` を書く**。ここを空のままにすると一致しない。
 
-`braket:CreateQuantumTask` は条件キー `aws:RequestTag/<key>` と `aws:TagKeys` に対応する。
-これを Deny に組み合わせると「タグを付けた意図的な投入だけ通す」ゲートが書ける（§6.1）。
+`braket:CreateQuantumTask` は条件キー `aws:RequestTag/<key>` と `aws:TagKeys` に対応するが、
+**リクエストタグは呼び出し側が自分で付ける値なので認可には使わない**（§6.1、ADR-0004）。
 
 ---
 
@@ -222,7 +227,7 @@ arn:aws:braket:<region>:*:device/quantum-simulator/<provider>/<device_id>
 | Rigetti Cepheus-1-108Q | 50,000 | $21.55 | 22% | ✅ 許可 |
 | IQM Garnet | 20,000 | $29.30 | 29% | ✅ 許可 |
 | IQM Emerald | 20,000 | $32.30 | 32% | ✅ 許可 |
-| AQT IBEX Q1 | 2,000 | $47.30 | 47% | ⚠️ **タグゲート**（§6.1） |
+| AQT IBEX Q1 | 2,000 | $47.30 | 47% | ⚠️ **専用ロールのみ**（§6.1） |
 | IonQ Forte Enterprise 1 | 5,000 | $400.30 | **400%** | ❌ 無条件拒否 |
 
 **IonQ Forte Enterprise 1 は 1 タスクで予算の 4 倍を溶かせる。** これは認証レイヤで止める対象。
@@ -320,6 +325,52 @@ make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 実体は `infra/iam/verify-guardrails.sh`。**14 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
 1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
+### 実測結果（2026-09-15、`shor-braket-ro` で実行。**14/14 が期待どおり**、終了コード 0）
+
+ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になっているのが要点で、
+**2 つのロールが互いの領域に到達できないこと**を実物のポリシーで確認できている。
+
+| 節 | プリンシパル | 対象 | 期待 | 実測 |
+|---|---|---|---|---|
+| 1 | `ShorBraketExecutionRole`（MFA あり） | IQM Garnet | `allowed` | ✅ `allowed` |
+| 1 | 〃 | IQM Emerald | `allowed` | ✅ `allowed` |
+| 1 | 〃 | Rigetti Cepheus | `allowed` | ✅ `allowed` |
+| 1 | 〃 | **AQT IBEX Q1** | `explicitDeny` | ✅ `explicitDeny` |
+| 1 | 〃 | IonQ Forte Enterprise 1 | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | `ShorBraketAqtRole`（MFA あり） | **AQT IBEX Q1** | `allowed` | ✅ `allowed` |
+| 2 | 〃 | **IQM Garnet** | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | 〃 | **IQM Emerald** | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | 〃 | IonQ Forte Enterprise 1 | `explicitDeny` | ✅ `explicitDeny` |
+| 3 | `ShorBraketExecutionRole`（**MFA なし**） | IQM Garnet | `explicitDeny` | ✅ `explicitDeny` |
+| 3 | `ShorBraketAqtRole`（**MFA なし**） | AQT IBEX Q1 | `explicitDeny` | ✅ `explicitDeny` |
+| 4 | `shor-braket-operator`（長期キー） | AQT IBEX Q1 | `explicitDeny` | ✅ `explicitDeny` |
+| 4 | 〃 | `sts:AssumeRole` → exec | `allowed` | ✅ `allowed` |
+| 4 | 〃 | `sts:AssumeRole` → aqt | `allowed` | ✅ `allowed` |
+| 5 | `shor-braket-monitor` | `CreateQuantumTask` | `implicitDeny` | ✅ `implicitDeny` |
+| 5 | 〃 | `sts:AssumeRole` → 両ロール | `implicitDeny` | ✅ `implicitDeny` ×2 |
+
+節 3 が `BoolIfExists` の効果そのもの。`Bool` で書いていたら、長期キーのリクエストには
+`aws:MultiFactorAuthPresent` キーが存在しないため Deny が発動せず、この行は `allowed` になる。
+
+節 5 の `implicitDeny` は「拒否されている」ではなく「**許可がどこにも無い**」という意味。
+監視ユーザーには assume の Allow 自体を与えていないので、MFA を登録しても実行できない。
+
+同時に確認したアタッチメント（`list-attached-*-policies`）:
+
+| プリンシパル | ポリシー |
+|---|---|
+| `shor-braket-operator` | readonly / guardrail / deny-aqt / assume-roles |
+| `shor-braket-monitor` | readonly / guardrail / deny-aqt |
+| `ShorBraketExecutionRole` | execute / guardrail / **deny-aqt** |
+| `ShorBraketAqtRole` | execute / guardrail / **deny-iqm** |
+
+旧 `shor-braket-assume-exec` は置き換えで消えており、残っている customer-managed ポリシーは
+`shor-braket-*` の 6 本ちょうど（孤児なし）。
+
+---
+
+### 節の構成
+
 | 節 | プリンシパル | 内容 |
 |---|---|---|
 | 1 | `ShorBraketExecutionRole` | IQM 2 機と Rigetti が `allowed`、**AQT と IonQ が `explicitDeny`** |
@@ -335,7 +386,9 @@ make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 その構文自体を廃止したので**タグ付きコンテキストでの評価は無くなった**。
 
 シミュレータの呼び出し自体には `iam:SimulatePrincipalPolicy` と
-`iam:GetContextKeysForPrincipalPolicy` が要る。readonly ポリシーの `IamPolicySimulation` に含めてある。
+`iam:GetContextKeysForPrincipalPolicy` が要る。readonly ポリシーの `IamPolicySimulation` に含めてあり、
+対象は両ロールと両ユーザー（AQT ロールは 2026-09-15 に追加。無いと節 2 が `AccessDenied` になる）。
+`make iam-verify` は `.env` の `AWS_ACCOUNT_ID` で ARN を組むので、placeholder のままだと全項目が error になる。
 
 > **注意**: `simulate-principal-policy` は既定で MFA なしのコンテキストで評価する。
 > MFA 必須の Deny があるため、ロールを対象にすると全部 `explicitDeny` になる。
@@ -354,22 +407,17 @@ aws iam simulate-principal-policy \
   --context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean
 ```
 
-### 7.1 AQT のタグゲートを確認する
+### 7.1 いつ測り直すか
 
-`make iam-verify` は AQT について 3 ケースを評価する。期待値は
-タグなし `explicitDeny`、`campaign=device-comparison` で `allowed`、別の値で `explicitDeny`。
+`make iam-verify` は終了コードを返すので、**ポリシーを変えたら必ず測り直す。** 特に:
 
-リクエストタグは `--context-entries` にもう 1 つ追加して再現する。
+- `infra/iam/*.json` を編集して `tf-apply` したあと
+- デバイスを候補に足す / 外すとき（節 1・2 の表に行が増える）
+- プリンシパルを増やすとき
 
-```bash
-aws iam simulate-principal-policy \
-  --policy-source-arn "arn:aws:iam::$AWS_ACCOUNT_ID:role/ShorBraketExecutionRole" \
-  --action-names braket:CreateQuantumTask \
-  --resource-arns "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" \
-  --context-entries \
-    ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
-    ContextKeyName=aws:RequestTag/campaign,ContextKeyValues=device-comparison,ContextKeyType=string
-```
+AQT のタグゲート（`aws:RequestTag/campaign` で Deny を開ける方式）は **ADR-0004 で廃止した**ため、
+タグ付きコンテキストでの評価は無い。リクエストタグは呼び出し側が自分で乗せる値なので、
+認可の判断材料にしない。
 
 ### 7.2 プリンシパルを作る前に検証する
 
@@ -411,25 +459,29 @@ aws iam simulate-custom-policy \
 
 ## 9. Braket の有効化（Terraform 不可）
 
-Braket はアカウントごとにコンソールでの有効化（利用規約への同意）が必要。
-これは API / Terraform から実施できないため、以下を手動で行う。
+Braket の第三者デバイス（IQM / AQT など）を使うには、アカウントごとに利用規約への同意が要る。
+**AWS CLI に該当コマンドは無い**（2026-09-15、aws-cli 2.34.4 の `aws braket help` で確認）。
+Terraform にも無い。ここだけはコンソール。
+
+このアカウントで同意済みかは CLI からは分からない。**先に Garnet 10 ショットの経路確認を投げる**
+（issue #17）。未同意ならタスクが作られる前に API エラーで落ち、課金されない。落ちたときだけ:
 
 1. 管理者権限を持つプリンシパルでコンソールにサインイン
-2. Amazon Braket コンソールを開き、利用規約に同意して有効化
-3. サービスリンクロール `AWSServiceRoleForAmazonBraket` が作成される
+2. Amazon Braket コンソールの Permissions and settings で第三者デバイスを有効化（利用規約に同意）
 
-有効化後に、上記の専用 IAM ユーザー / ロールで実行する。
+サービスリンクロール `AWSServiceRoleForAmazonBraket` は同意とは別で、`iam:CreateServiceLinkedRole` があれば
+最初のタスクで自動的に作られる。execute ポリシーに含めてある。
 
 ---
 
 ## 10. その他の手動手順（Terraform 不可）
 
-| 手順 | 理由 |
+| 手順 | 状態（2026-09-15） |
 |---|---|
-| **請求情報への IAM アクセスを有効化** | アカウント設定「IAM ユーザーおよびロールによる請求情報へのアクセス」。これを有効にしないと、ポリシーで許可していても IAM ユーザーから Budgets / Cost Explorer が読めない |
-| **operator ユーザーに MFA デバイスを登録** | 信頼ポリシーが MFA を要求するため、未登録だと exec プロファイルが使えない。登録後の serial を `~/.aws/config` の `mfa_serial` に書く |
-| Cost Explorer の有効化 | 初回はコンソールで有効化が必要。`ce:GetCostAndUsage` は 1 リクエスト 0.01 USD |
-| **コスト配分タグ `project` と `campaign` の有効化** | Billing コンソールの「コスト配分タグ」。有効化しないと Cost Explorer でタグ別に絞れない。有効化後のデータにしか効かないので、最初の投入より前に行う |
+| ~~請求情報への IAM アクセスを有効化~~ | **有効化済み。** `budgets describe-budgets` が `shor-braket-ro` で通ることを確認した。IAM ユーザーから Budgets が読める |
+| **operator ユーザーに MFA デバイスを登録** | 未。信頼ポリシーが MFA を要求するため、未登録だと exec / aqt プロファイルが使えない。`make issue-creds IAM_USER=shor-braket-operator PROFILE_NAME=shor-braket-ro MFA=1`（issue #1） |
+| ~~Cost Explorer の有効化~~ | **不要になった。** 月次累計は AWS Budgets の `CalculatedSpend` から取る（無料、`budgets:ViewBudget` で読める）。readonly の `ce:GetCostAndUsage` は残しているが使わない（1 リクエスト 0.01 USD） |
+| コスト配分タグ `project` / `oracle` / `campaign` の有効化 | **Terraform でできる**（`aws_ce_cost_allocation_tag`）。コンソール不要。ただし**キーはタグ付きリソースの課金記録から約 24 時間後**にしか現れない。`project` は Phase 3 のインフラから、`oracle` / `campaign` は最初のタスク（Garnet 10 ショットの経路確認）から現れる。有効化前のデータには効かないので、**実機の本実験は有効化から 24 時間後以降に行う**（決定） |
 
 monitor ユーザーには MFA を必須にしていないが、コンソールを使うなら登録を推奨する。
 
@@ -578,7 +630,8 @@ aws iam get-account-summary --profile admin \
 
 | 操作 | プロファイル |
 |---|---|
-| `make tf-plan` / `tf-apply` | `admin`（MFA を聞かれる） |
+| `make tf-plan` | `admin`。読み取りのみなので、キャッシュされたセッションがあれば誰が回してもよい |
+| `make tf-apply` / `tf-destroy` | `admin`。**インフラを変える操作は操作者本人が実行する。** `AdminRole` の信頼ポリシーが MFA（1 時間で失効）を要求する |
 | operator / monitor のアクセスキー発行 | `admin` で `aws iam create-access-key`。Terraform には入れない（state に平文で残るため） |
 | operator の MFA 登録 | operator 本人が登録する |
 | 日常の読み取り・投入 | `shor-braket-ro` / `shor-braket-exec`（§1） |

@@ -45,8 +45,9 @@ budget_notification_email = "CHANGE-ME@example.com"
 budget_alert_thresholds = [50, 80, 100]
 
 # ---- タグ ----
+# project は小文字。量子タスクに付くタグ (gate/tags.py) と同じキーにして、コスト配分タグ 1 つで
+# インフラとタスクの両方を束ねる (コスト配分タグのキーは大文字小文字を区別する)
 tags = {
-  Project     = "shor-braket"
-  ManagedBy   = "terraform"
-  AmazonBraket = "true"
+  project      = "shor-braket"
+  "managed-by" = "terraform"
 }

@@ -85,6 +85,7 @@
       ],
       "Resource": [
         "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ShorBraketExecutionRole",
+        "arn:aws:iam::<AWS_ACCOUNT_ID>:role/ShorBraketAqtRole",
         "arn:aws:iam::<AWS_ACCOUNT_ID>:user/shor-braket-operator",
         "arn:aws:iam::<AWS_ACCOUNT_ID>:user/shor-braket-monitor"
       ]

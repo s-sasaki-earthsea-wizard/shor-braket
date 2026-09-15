@@ -337,6 +337,13 @@ Spending Limit は SV1 / DM1、S3、ノートブック、Hybrid Job の EC2 費�
 
 AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SNS に通知する。
 
+Budget はコスト配分タグ `project=shor-braket` でフィルタする（2026-09-15）。サービス単位にしないのは、
+プロジェクトが Braket 以外に S3 / CloudWatch も使うため。タグが有効化されるまで Budget は 0 を示す。
+
+月次累計の取得元は AWS Budgets の `CalculatedSpend`（`budgets:ViewBudget`、無料）。Cost Explorer は
+1 リクエスト 0.01 USD なので使わない。Budgets の値は 1 日数回の更新で実時間ではないため、
+クライアントの 80% / 100% 判定は「前回更新時点の累計 + 今回の概算」で行う。
+
 ---
 
 ## 9. シミュレータとインフラの依存関係

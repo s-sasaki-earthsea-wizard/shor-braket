@@ -20,9 +20,21 @@ Terraform で構築済みで、root アクセスキーも廃止済み。残り�
 issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。**issue #8（validated レコードと投入ゲート）も
 2026-09-14 に実装完了**（PR #16。マージされたら #8 を閉じる）。実タスク投入は **issue #17** に分離した。
 **2026-09-15: タグ集合と SV1 の要否も決着した**（ADR-0004）。残る未決はレコードの有効期限の日数、
-`--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。
-**次の作業は AWS 側（issue #4 → #1 → #2 → #3）。** #4 のコスト配分タグは有効化後のデータにしか効かないので
-最初のタスクより前に必須。有効化するタグは `project` / `oracle` / `campaign` の 3 つ。
+`--yes` の運用、IBEX の実行ウィンドウ運用。
+
+**2026-09-15: AWS 側を再開し、ADR-0004 の IAM を apply した。** IAM は 24 リソースで差分ゼロ
+（ユーザー 2・ロール 2・ポリシー 6・アタッチ 13 + caller identity）。**`make iam-verify` 14/14 が期待どおり**で、
+結果は `infra/iam/README.md` §7 に記録済み（issue #2 は完了）。旧 `shor-braket-assume-exec` は消え、孤児なし。
+請求情報への IAM アクセスは有効化済みを確認した。**残りは #1 → #3 → #4 → #17。**
+順番は **手順 0 ローカル準備（済） → 1 IAM の plan / apply（済） → 2 `iam-verify`（済） →
+3 operator の MFA と exec / aqt プロファイル（#1、未）→ 4–5 Phase 3 の Terraform（#3）→
+6 コスト配分タグの有効化（#4、キー出現まで約 24 時間）→ 7 Garnet 10 ショットの経路確認（#17）**。
+**Terraform は admin で回す。plan は Claude が回してよく、apply / destroy は Syota さん本人が実行する。**
+admin を使うのは Terraform と鍵・MFA の発行だけで、日常のコマンドはプロジェクトの IAM（ro / exec / aqt / monitor）で回す。
+Budget はコスト配分タグ `project` でフィルタし、月次累計は Budgets の `CalculatedSpend` から取る（Cost Explorer は使わない）。
+コスト配分タグは `aws_ce_cost_allocation_tag` で Terraform 化する。有効化後のデータにしか効かないので、
+**実機の本実験は有効化から 24 時間後以降**。有効化するタグは `project` / `oracle` / `campaign` の 3 つ。
+Braket の第三者デバイス規約への同意だけは CLI に無く、経路確認が規約で落ちたときに限りコンソールを使う。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** 3 機（IQM Garnet / Emerald、AQT IBEX Q1）の校正データを
 `devices/snapshots/` にコミットした。`make device-snapshot` は読み取りプロファイルで `GetDevice` を呼ぶだけで
@@ -246,6 +258,11 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 回路ハッシュ | 正規化した IR の JSON に SHA-256。target 順は保存、角度は 12 桁、verbatim と物理 qubit を含め、shots は含めない | `docs/03` §3.2、`gate/circuit_hash.py` |
 | レコードの失効 | 回路ハッシュ / 校正ハッシュ / ARN / SDK major / 正規化版 / 30 日。実質の主判定は校正ハッシュ | `docs/03` §4.3 |
 | Spending Limit が読めないとき | 拒否する（余裕とみなさない） | `gate/preflight.py` |
+| Terraform の実行主体 | admin（MFA 必須の assume role）。plan は誰でも、apply / destroy は Syota さん本人 | `infra/terraform/README.md` |
+| Budget のフィルタ | コスト配分タグ `project=shor-braket`。サービス単位にはしない（S3 / CloudWatch も使う） | issue #3 |
+| 月次累計の取得元 | AWS Budgets の `CalculatedSpend`（無料、`budgets:ViewBudget`）。Cost Explorer は使わない | issue #7 |
+| コスト配分タグの有効化 | Terraform（`aws_ce_cost_allocation_tag`）。キー出現まで約 24 時間。本実験は有効化から 24 時間後以降 | issue #4 |
+| `default_tags` のキー | `project` を小文字にしてタスクのタグと揃える。`AmazonBraket` タグは廃止 | `infra/terraform/variables.tf` |
 
 ---
 
@@ -256,6 +273,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
-| 3 | Terraform による AWS リソース定義 | **高** | 🚧 **次はここ**。IAM は構築済み（2026-09-13）。残りは issue #4 → #1 → #2 → #3 |
+| 3 | Terraform による AWS リソース定義 | **高** | 🚧 **次はここ**。IAM は完成（2026-09-15 に ADR-0004 を apply、`iam-verify` 14/14）。残りは #1（operator の MFA）→ #3（S3 / Budgets / Spending Limit）→ #4（コスト配分タグ） |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ issue #17 |

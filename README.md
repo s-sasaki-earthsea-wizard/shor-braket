@@ -15,7 +15,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
-| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAMは構築済み。S3 / Budgets / Spending Limitは[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。S3 / Budgets / Spending Limit / コスト配分タグは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
@@ -259,6 +259,8 @@ $EDITOR .env
 **root のアクセスキーで作業しない。** 最初に [`infra/iam/README.md`](infra/iam/README.md) §11 の手順で
 MFA 必須の管理者ロールを作り、root キーを削除する。`make tf-plan` / `tf-apply` は `AWS_PROFILE_ADMIN` で動き、
 呼び出し元が root なら拒否する。IAM プリンシパルは Terraform で作る（[`infra/terraform/`](infra/terraform/)）。
+`make tf-plan` は読み取りのみだが、`tf-apply` / `tf-destroy` は操作者本人が MFA を打って実行する。
+admin を使うのは Terraform と鍵・MFA の発行だけで、日常の読み取りと投入はプロジェクトの IAM で行う。
 
 `.env` を作れば `make` が自動で読み込む。`make help` の末尾で読み込み状態を確認できる。
 
@@ -370,7 +372,8 @@ N = 6 なら合計 4 qubit で済み、回路が大幅に浅くなる。
 
 ### 予算とガードレール
 
-月次AWS Budgetは **100 USD**。QPU候補はGarnet / Emerald / IBEX-Q1に固定する。
+月次AWS Budgetは **100 USD**。コスト配分タグ `project=shor-braket` でフィルタし、月次累計は Budgets の
+`CalculatedSpend` から読む（Cost Explorer は使わない）。QPU候補はGarnet / Emerald / IBEX-Q1に固定する。
 Braket Spending Limitは全機0 USDで作成し、実験時だけTerraformで配分する。3機合計が300 USDを
 超える設定はapplyを失敗させる（[ADR-0003](docs/adr/0003-reference-circuit-and-cost-guardrails.md)）。
 
