@@ -325,6 +325,52 @@ make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 実体は `infra/iam/verify-guardrails.sh`。**14 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
 1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
+### 実測結果（2026-09-15、`shor-braket-ro` で実行。**14/14 が期待どおり**、終了コード 0）
+
+ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になっているのが要点で、
+**2 つのロールが互いの領域に到達できないこと**を実物のポリシーで確認できている。
+
+| 節 | プリンシパル | 対象 | 期待 | 実測 |
+|---|---|---|---|---|
+| 1 | `ShorBraketExecutionRole`（MFA あり） | IQM Garnet | `allowed` | ✅ `allowed` |
+| 1 | 〃 | IQM Emerald | `allowed` | ✅ `allowed` |
+| 1 | 〃 | Rigetti Cepheus | `allowed` | ✅ `allowed` |
+| 1 | 〃 | **AQT IBEX Q1** | `explicitDeny` | ✅ `explicitDeny` |
+| 1 | 〃 | IonQ Forte Enterprise 1 | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | `ShorBraketAqtRole`（MFA あり） | **AQT IBEX Q1** | `allowed` | ✅ `allowed` |
+| 2 | 〃 | **IQM Garnet** | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | 〃 | **IQM Emerald** | `explicitDeny` | ✅ `explicitDeny` |
+| 2 | 〃 | IonQ Forte Enterprise 1 | `explicitDeny` | ✅ `explicitDeny` |
+| 3 | `ShorBraketExecutionRole`（**MFA なし**） | IQM Garnet | `explicitDeny` | ✅ `explicitDeny` |
+| 3 | `ShorBraketAqtRole`（**MFA なし**） | AQT IBEX Q1 | `explicitDeny` | ✅ `explicitDeny` |
+| 4 | `shor-braket-operator`（長期キー） | AQT IBEX Q1 | `explicitDeny` | ✅ `explicitDeny` |
+| 4 | 〃 | `sts:AssumeRole` → exec | `allowed` | ✅ `allowed` |
+| 4 | 〃 | `sts:AssumeRole` → aqt | `allowed` | ✅ `allowed` |
+| 5 | `shor-braket-monitor` | `CreateQuantumTask` | `implicitDeny` | ✅ `implicitDeny` |
+| 5 | 〃 | `sts:AssumeRole` → 両ロール | `implicitDeny` | ✅ `implicitDeny` ×2 |
+
+節 3 が `BoolIfExists` の効果そのもの。`Bool` で書いていたら、長期キーのリクエストには
+`aws:MultiFactorAuthPresent` キーが存在しないため Deny が発動せず、この行は `allowed` になる。
+
+節 5 の `implicitDeny` は「拒否されている」ではなく「**許可がどこにも無い**」という意味。
+監視ユーザーには assume の Allow 自体を与えていないので、MFA を登録しても実行できない。
+
+同時に確認したアタッチメント（`list-attached-*-policies`）:
+
+| プリンシパル | ポリシー |
+|---|---|
+| `shor-braket-operator` | readonly / guardrail / deny-aqt / assume-roles |
+| `shor-braket-monitor` | readonly / guardrail / deny-aqt |
+| `ShorBraketExecutionRole` | execute / guardrail / **deny-aqt** |
+| `ShorBraketAqtRole` | execute / guardrail / **deny-iqm** |
+
+旧 `shor-braket-assume-exec` は置き換えで消えており、残っている customer-managed ポリシーは
+`shor-braket-*` の 6 本ちょうど（孤児なし）。
+
+---
+
+### 節の構成
+
 | 節 | プリンシパル | 内容 |
 |---|---|---|
 | 1 | `ShorBraketExecutionRole` | IQM 2 機と Rigetti が `allowed`、**AQT と IonQ が `explicitDeny`** |
@@ -361,22 +407,17 @@ aws iam simulate-principal-policy \
   --context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean
 ```
 
-### 7.1 AQT のタグゲートを確認する
+### 7.1 いつ測り直すか
 
-`make iam-verify` は AQT について 3 ケースを評価する。期待値は
-タグなし `explicitDeny`、`campaign=device-comparison` で `allowed`、別の値で `explicitDeny`。
+`make iam-verify` は終了コードを返すので、**ポリシーを変えたら必ず測り直す。** 特に:
 
-リクエストタグは `--context-entries` にもう 1 つ追加して再現する。
+- `infra/iam/*.json` を編集して `tf-apply` したあと
+- デバイスを候補に足す / 外すとき（節 1・2 の表に行が増える）
+- プリンシパルを増やすとき
 
-```bash
-aws iam simulate-principal-policy \
-  --policy-source-arn "arn:aws:iam::$AWS_ACCOUNT_ID:role/ShorBraketExecutionRole" \
-  --action-names braket:CreateQuantumTask \
-  --resource-arns "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1" \
-  --context-entries \
-    ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean \
-    ContextKeyName=aws:RequestTag/campaign,ContextKeyValues=device-comparison,ContextKeyType=string
-```
+AQT のタグゲート（`aws:RequestTag/campaign` で Deny を開ける方式）は **ADR-0004 で廃止した**ため、
+タグ付きコンテキストでの評価は無い。リクエストタグは呼び出し側が自分で乗せる値なので、
+認可の判断材料にしない。
 
 ### 7.2 プリンシパルを作る前に検証する
 

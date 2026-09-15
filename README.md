@@ -15,7 +15,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
-| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAM は構築済み（ADR-0004 の差分は apply 待ち）。S3 / Budgets / Spending Limit / コスト配分タグは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。S3 / Budgets / Spending Limit / コスト配分タグは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
