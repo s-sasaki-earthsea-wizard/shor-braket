@@ -133,6 +133,15 @@ tf-plan:  ## Terraform の変更計画を表示する (AWS_PROFILE_ADMIN を使�
 	$(refuse_root)
 	$(call tf_run,plan -out=tfplan)
 
+.PHONY: tf-show
+tf-show:  ## 保存済みの plan (infra/terraform/tfplan) を読む。認証も課金も不要
+	@test -f $(TF_DIR)/tfplan || { \
+		echo ""; \
+		echo "  $(TF_DIR)/tfplan is not there. Run make tf-plan first."; \
+		echo ""; \
+		exit 1; }
+	@terraform -chdir=$(TF_DIR) show tfplan
+
 .PHONY: tf-apply
 tf-apply:  ## Terraform の変更を適用する (tf-plan の出力を使う。AWS_PROFILE_ADMIN)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-apply)

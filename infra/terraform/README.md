@@ -57,9 +57,14 @@ terraform -chdir=infra/terraform output -raw aws_config_snippet   # ~/.aws/confi
 | 操作 | 誰が | 備考 |
 |---|---|---|
 | `make tf-plan` | 誰でも（読み取りのみ） | admin セッションのキャッシュが生きていれば MFA を聞かれない |
+| `make tf-show` | 誰でも | 保存済みの plan を読み直す。AWS に一切アクセスしない |
 | `make tf-apply` / `tf-destroy` | 操作者本人 | インフラを実際に変える操作。`AdminRole` の信頼ポリシーが MFA（1 時間で失効）を要求する |
 
 `tfplan` は plan と apply の間に固定される。plan の出力を読んでから apply すること。
+
+**plan ファイルの置き場所は `infra/terraform/tfplan`。** `make tf-plan` は `terraform -chdir=$(TF_DIR) plan -out=tfplan`
+を実行するので、`-out` のパスは chdir 先から見た相対になる。リポジトリのルートで `terraform show tfplan` を叩くと
+「no such file or directory」になる。`make tf-show`、または `terraform -chdir=infra/terraform show tfplan` を使うこと。
 
 ### MFA と Terraform
 
