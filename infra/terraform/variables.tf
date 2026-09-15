@@ -75,11 +75,10 @@ variable "budget_alert_thresholds" {
 # ---- Tags ----
 
 variable "tags" {
-  description = "Tags applied to every resource through provider default_tags."
+  description = "Tags applied to every resource through provider default_tags. `project` is lowercase on purpose: it is the same key every quantum task carries (gate/tags.py), and cost allocation tag keys are case-sensitive, so one key covers the infrastructure and the tasks."
   type        = map(string)
   default = {
-    Project      = "shor-braket"
-    ManagedBy    = "terraform"
-    AmazonBraket = "true"
+    project      = "shor-braket"
+    "managed-by" = "terraform"
   }
 }
