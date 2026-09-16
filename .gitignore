@@ -19,7 +19,6 @@ uv.lock.bak
 
 # ---- Terraform ----
 .terraform/
-.terraform.lock.hcl
 *.tfstate
 *.tfstate.*
 *.tfvars
