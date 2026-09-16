@@ -1,7 +1,7 @@
 # infra/terraform
 
 AWS リソース定義。**IAM プリンシパルは 2026-09-13 に初回 apply、2026-09-15 に ADR-0004 のロール分割を反映済み。
-Phase 3（S3 / Budgets + SNS / Braket Spending Limit / コスト配分タグ）は 2026-09-16 に実装し、apply 待ち。**
+Phase 3（S3 / Budgets + SNS / Braket Spending Limit）も 2026-09-16 に apply 済み。コスト配分タグの有効化だけが残っている（下記の 2 段 apply）。**
 
 ---
 
