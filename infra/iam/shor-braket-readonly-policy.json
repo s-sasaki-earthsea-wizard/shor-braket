@@ -80,9 +80,21 @@
       "Effect": "Allow",
       "Action": [
         "sns:GetTopicAttributes",
-        "sns:ListSubscriptionsByTopic"
+        "sns:ListSubscriptionsByTopic",
+        "sns:GetSubscriptionAttributes"
       ],
       "Resource": "arn:aws:sns:*:<AWS_ACCOUNT_ID>:shor-braket-*"
+    },
+    {
+      "Sid": "AuditAndMetricsRead",
+      "Effect": "Allow",
+      "Action": [
+        "cloudtrail:LookupEvents",
+        "cloudwatch:GetMetricStatistics",
+        "cloudwatch:GetMetricData",
+        "cloudwatch:ListMetrics"
+      ],
+      "Resource": "*"
     },
     {
       "Sid": "IamPolicySimulation",

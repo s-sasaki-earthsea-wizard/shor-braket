@@ -33,7 +33,7 @@ awscc provider には `default_tags` が無いので、Spending Limit には同�
   （書くのは Deny 済みの Hybrid Job だけ）。`CreateQuantumTask` の監査は CloudTrail が 90 日無料で記録する。
   execute / readonly ポリシーの `logs:` 文は残してあるが、対応するリソースは無い
 - **Braket の第三者デバイス利用規約への同意** — CLI に該当コマンドが無い（aws-cli 2.34.4 で確認）。`../iam/README.md` §9
-- **SNS サブスクリプションの確認** — 確認メールのリンクを 1 回クリックする。クリックするまで通知は届かない（issue #4）。**2026-09-16 完了**。完了ページの解除リンクを続けて押さないこと（下記）
+- **SNS サブスクリプションの確認** — メールのリンクを**押さず**、リンクのトークンを `confirm-subscription --authenticate-on-unsubscribe true` に渡して確認する（下記）。リンクで確認すると、メール基盤のリンク巡回に解除されて確認と解除が自走する（2026-09-17 実測）
 
 ---
 
@@ -268,19 +268,42 @@ Braket のサービスリンクロール `AWSServiceRoleForAmazonBraket` が結�
 awscc はこれを computed として受け取るので plan に差分は出ないが、`search-spending-limits` の
 レスポンスには常に `timePeriod` が乗る。クライアント側（`gate/spending.py`）は期間ありを前提に読む。
 
-### SNS の確認ページには解除リンクがある
+### SNS の email 購読はリンクではなく API で確認する（2026-09-17）
 
-確認メールの「Confirm subscription」を開くと、**確認完了ページ自体に解除リンクが載っている**
-（「If it was not your intention to subscribe, click here to unsubscribe.」）。
-そこを続けて押すとサブスクリプションは `Deleted` になり、`SubscriptionsConfirmed` は 0 のままになる。
-**確認リンクを押したらそのままタブを閉じること。**
+初回は確認メールのリンクで確認したが、**確認と解除が数十分おきに繰り返される**状態になった。
+SNS は解除のたびに「Your subscription to the topic below has been deactivated」というメールを送り、
+そこに Resubscribe リンク（新しいトークン）を入れる。メール基盤のリンク巡回（迷惑メール判定などで本文の URL を開き、
+応答ページのリンクまで辿るもの）がこれを踏むと、次のように自走する。
 
-2026-09-16 の確認では、一度 `Deleted` を観測してから数分後に確認済みになった。消えたあとでも
-メールの確認リンクをもう一度開けば確認し直せる（トークンは 3 日有効）。
-受信箱からは成否が分からないので、**クリックしたら必ず次のコマンドで実測する**（`shor-braket-ro` で通る。課金なし）。
+```
+Resubscribe → 確認ページ（解除リンク入り）→ 解除 → 新しい deactivated メール → Resubscribe → …
+```
+
+毎周で新しいトークンが出るので放置では止まらない。CloudTrail には何も残らない（リンク経由の確認・解除は
+認証なし HTTP で、管理イベントにならない）。AWS の Knowledge Center「prevent-unsubscribe-all-sns-topic」が
+この症状と対処を明記している: *Unsubscribe actions might occur unintentionally by automated systems such as
+email security scanners or spam filters. These automated systems open links in received emails for inspection.*
+
+**対処: 解除に AWS の署名を必須にして確認する。** 確認メールか deactivated メールのリンクを**開かずに**
+アドレスをコピーし、`Token=` の値を取り出して admin で実行する。
 
 ```bash
 topic="$(terraform -chdir=infra/terraform output -raw budget_alerts_topic_arn)"
+aws sns confirm-subscription --profile admin --region eu-north-1 --topic-arn "$topic" --token '<Token>' --authenticate-on-unsubscribe true
+```
+
+確認（`shor-braket-ro` で通る）:
+
+```bash
+aws sns get-subscription-attributes --subscription-arn '<返ってきた SubscriptionArn>' --profile shor-braket-ro --query 'Attributes.ConfirmationWasAuthenticated'
+```
+
+`"true"` なら解除には `sns:Unsubscribe` の権限が要り、リンクでは消えない。Terraform に対応する引数は無いので、
+サブスクリプションを作り直したとき（destroy / recreate のたび）にこの手順を繰り返す。
+
+状態の読み分け:
+
+```bash
 aws sns list-subscriptions-by-topic --topic-arn "$topic" --profile shor-braket-ro \
   --query 'Subscriptions[].SubscriptionArn' --output text
 ```
@@ -289,11 +312,10 @@ aws sns list-subscriptions-by-topic --topic-arn "$topic" --profile shor-braket-r
 |---|---|
 | `PendingConfirmation` | メールは送られたが、まだ確認されていない |
 | `arn:aws:sns:...:shor-braket-budget-alerts:<uuid>` | **確認済み。これが正常** |
-| `Deleted` | 解除された。通知は届かない。作り直しが要る |
+| `Deleted` | 解除された。通知は届かない |
 
-`Deleted` のままなら、メールの確認リンクを開き直すか（3 日以内）、次の apply で作り直す。
-
-**実測（2026-09-16）: 確認済み。** `SubscriptionsConfirmed` = 1。
+**しないこと**: deactivated メールの Resubscribe を押さない（周回に燃料を足すだけ）。確認完了ページの
+解除リンクを押さない。受信箱とページ表示だけでは成否が分からないので、必ず API で実測する。
 
 ### Budget のタグフィルタはタグ有効化前でも作れる
 
