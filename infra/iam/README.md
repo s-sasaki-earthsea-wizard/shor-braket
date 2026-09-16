@@ -296,6 +296,20 @@ Xanadu / OQC / Pasqal は現在このアカウントから見えないが、将�
 **`DenyHybridJobsEntirely`**: Hybrid Jobs は SageMaker インスタンスを時間課金で起動するため、
 コスト暴走の最大リスク。本プロジェクトでは一切使わないので全面禁止する。
 
+### 6.2 Spending Limit は誰でも読めるが、誰も変えられない（2026-09-16）
+
+Braket Spending Limit はサービス側のハードストップで、`limit − totalSpend − queuedSpend` に収まらない
+`CreateQuantumTask` を Braket 自身が拒否する。この値を operator や実行ロールが動かせたら、
+§6.1 で退けたタグゲートと同じ「自分で外せる境界」になる。そこで能力を分ける。
+
+| Sid | ポリシー | 効果 |
+|---|---|---|
+| `BraketSpendingLimitRead` | readonly / execute（Allow） | `braket:SearchSpendingLimits`。クライアントの preflight が残額を表示するのに要る |
+| `DenySpendingLimitChanges` | guardrail（Deny、全プリンシパル） | `braket:CreateSpendingLimit` / `UpdateSpendingLimit` / `DeleteSpendingLimit` |
+
+Limit を変える経路は Terraform（`infra/terraform/spending_limits.tf`）だけで、admin ロール（MFA）と
+git の差分が要る。3 機とも 0 USD から始め、実験のたびに tfvars で配分する。3 機の合計 300 USD が天井。
+
 ### 拒否リスト方式の弱点
 
 拒否リストは **「知らないデバイスは通ってしまう」** という本質的な弱点を持つ。
@@ -322,13 +336,14 @@ IAM ポリシーシミュレータで評価する。実際に量子タスクを�
 make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 ```
 
-実体は `infra/iam/verify-guardrails.sh`。**14 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
+実体は `infra/iam/verify-guardrails.sh`。**22 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
 1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
-### 実測結果（2026-09-15、`shor-braket-ro` で実行。**14/14 が期待どおり**、終了コード 0）
+### 実測結果（2026-09-15、`shor-braket-ro` で実行。節 1〜5 の **14/14 が期待どおり**、終了コード 0）
 
 ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になっているのが要点で、
 **2 つのロールが互いの領域に到達できないこと**を実物のポリシーで確認できている。
+節 6（Spending Limit、§6.2）は 2026-09-16 に追加したもので、Phase 3 の apply 後に測り直す。
 
 | 節 | プリンシパル | 対象 | 期待 | 実測 |
 |---|---|---|---|---|
@@ -378,6 +393,7 @@ ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になって�
 | 3 | 両ロール | MFA なしはすべて `explicitDeny` |
 | 4 | `shor-braket-operator` | 長期キーから AQT は `explicitDeny`。両ロールへの assume は `allowed` |
 | 5 | `shor-braket-monitor` | 実行も assume も `implicitDeny`（`.env` に `IAM_MONITOR_PRINCIPAL` があるときのみ） |
+| 6 | 両ロール・両ユーザー | `SearchSpendingLimits` は `allowed`、Create / Update / Delete は `explicitDeny`（§6.2。8 項目） |
 
 プリンシパル名は環境変数で上書きできる（`PRINCIPAL` / `IAM_AQT_PRINCIPAL` /
 `IAM_OPERATOR_PRINCIPAL` / `IAM_MONITOR_PRINCIPAL`）。
@@ -479,7 +495,8 @@ Terraform にも無い。ここだけはコンソール。
 | 手順 | 状態（2026-09-15） |
 |---|---|
 | ~~請求情報への IAM アクセスを有効化~~ | **有効化済み。** `budgets describe-budgets` が `shor-braket-ro` で通ることを確認した。IAM ユーザーから Budgets が読める |
-| **operator ユーザーに MFA デバイスを登録** | 未。信頼ポリシーが MFA を要求するため、未登録だと exec / aqt プロファイルが使えない。`make issue-creds IAM_USER=shor-braket-operator PROFILE_NAME=shor-braket-ro MFA=1`（issue #1） |
+| ~~operator ユーザーに MFA デバイスを登録~~ | **2026-09-16 完了。** `make issue-creds IAM_USER=shor-braket-operator PROFILE_NAME=shor-braket-ro MFA=1` で登録し、exec / aqt の両プロファイルで `sts get-caller-identity` が assumed-role を返した（issue #1）。**このターゲットは単独の行で実行する**。複数行をまとめて貼ると MFA プロンプトが正しいコードを受け取れない |
+| **SNS サブスクリプションの確認** | Phase 3 の apply 後、`budget_notification_email` に届く確認メールのリンクを 1 回クリックする。クリックするまで予算通知は届かない |
 | ~~Cost Explorer の有効化~~ | **不要になった。** 月次累計は AWS Budgets の `CalculatedSpend` から取る（無料、`budgets:ViewBudget` で読める）。readonly の `ce:GetCostAndUsage` は残しているが使わない（1 リクエスト 0.01 USD） |
 | コスト配分タグ `project` / `oracle` / `campaign` の有効化 | **Terraform でできる**（`aws_ce_cost_allocation_tag`）。コンソール不要。ただし**キーはタグ付きリソースの課金記録から約 24 時間後**にしか現れない。`project` は Phase 3 のインフラから、`oracle` / `campaign` は最初のタスク（Garnet 10 ショットの経路確認）から現れる。有効化前のデータには効かないので、**実機の本実験は有効化から 24 時間後以降に行う**（決定） |
 
