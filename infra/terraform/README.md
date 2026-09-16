@@ -33,7 +33,7 @@ awscc provider には `default_tags` が無いので、Spending Limit には同�
   （書くのは Deny 済みの Hybrid Job だけ）。`CreateQuantumTask` の監査は CloudTrail が 90 日無料で記録する。
   execute / readonly ポリシーの `logs:` 文は残してあるが、対応するリソースは無い
 - **Braket の第三者デバイス利用規約への同意** — CLI に該当コマンドが無い（aws-cli 2.34.4 で確認）。`../iam/README.md` §9
-- **SNS サブスクリプションの確認** — 確認メールのリンクを 1 回クリックする。クリックするまで通知は届かない（issue #4）
+- **SNS サブスクリプションの確認** — 確認メールのリンクを 1 回クリックする。クリックするまで通知は届かない（issue #4）。**2026-09-16 完了**。完了ページの解除リンクを続けて押さないこと（下記）
 
 ---
 
@@ -268,11 +268,16 @@ Braket のサービスリンクロール `AWSServiceRoleForAmazonBraket` が結�
 awscc はこれを computed として受け取るので plan に差分は出ないが、`search-spending-limits` の
 レスポンスには常に `timePeriod` が乗る。クライアント側（`gate/spending.py`）は期間ありを前提に読む。
 
-### SNS の確認ページには解除リンクがある（2026-09-16 に踏んだ）
+### SNS の確認ページには解除リンクがある
 
-確認メールの「Confirm subscription」を開くと、**確認完了ページ自体に解除リンクが載っている**。
+確認メールの「Confirm subscription」を開くと、**確認完了ページ自体に解除リンクが載っている**
+（「If it was not your intention to subscribe, click here to unsubscribe.」）。
 そこを続けて押すとサブスクリプションは `Deleted` になり、`SubscriptionsConfirmed` は 0 のままになる。
-確認できたかは次で読む（`shor-braket-ro` で通る）。
+**確認リンクを押したらそのままタブを閉じること。**
+
+2026-09-16 の確認では、一度 `Deleted` を観測してから数分後に確認済みになった。消えたあとでも
+メールの確認リンクをもう一度開けば確認し直せる（トークンは 3 日有効）。
+受信箱からは成否が分からないので、**クリックしたら必ず次のコマンドで実測する**（`shor-braket-ro` で通る。課金なし）。
 
 ```bash
 topic="$(terraform -chdir=infra/terraform output -raw budget_alerts_topic_arn)"
@@ -286,8 +291,9 @@ aws sns list-subscriptions-by-topic --topic-arn "$topic" --profile shor-braket-r
 | `arn:aws:sns:...:shor-braket-budget-alerts:<uuid>` | **確認済み。これが正常** |
 | `Deleted` | 解除された。通知は届かない。作り直しが要る |
 
-`Deleted` になったら次の apply で作り直される（Terraform が消えたサブスクリプションを検出する）。
-**確認リンクを押したらそのままタブを閉じること。**
+`Deleted` のままなら、メールの確認リンクを開き直すか（3 日以内）、次の apply で作り直す。
+
+**実測（2026-09-16）: 確認済み。** `SubscriptionsConfirmed` = 1。
 
 ### Budget のタグフィルタはタグ有効化前でも作れる
 
