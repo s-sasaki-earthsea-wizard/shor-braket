@@ -41,8 +41,12 @@ die()   { printf '\n  ERROR: %s\n\n' "$*" >&2; exit 1; }
 command -v python3 >/dev/null || die "python3 not found."
 
 export AWS_PROFILE="$ADMIN_PROFILE"
-ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text 2>/dev/null)" \
-  || die "cannot authenticate with profile '$ADMIN_PROFILE'. Try: aws sts get-caller-identity --profile $ADMIN_PROFILE"
+# stderr is left alone on purpose: the CLI prints the MFA prompt and, on failure, the STS
+# error text (wrong device, reused code, expired key). Swallowing it hid the cause once.
+ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)" \
+  || die "cannot authenticate with profile '$ADMIN_PROFILE' (see the error above).
+  The prompt wants the code for the ADMIN device, not the operator's. Run this target on its
+  own line; an MFA prompt inside a pasted batch of commands does not get a usable code."
 redact() { sed -e "s/${ACCOUNT_ID}/<ACCOUNT_ID>/g" -e 's/AKIA[A-Z0-9]\{16\}/<AKID>/g'; }
 
 aws iam get-user --user-name "$IAM_USER" >/dev/null 2>&1 \
