@@ -268,6 +268,27 @@ Braket のサービスリンクロール `AWSServiceRoleForAmazonBraket` が結�
 awscc はこれを computed として受け取るので plan に差分は出ないが、`search-spending-limits` の
 レスポンスには常に `timePeriod` が乗る。クライアント側（`gate/spending.py`）は期間ありを前提に読む。
 
+### SNS の確認ページには解除リンクがある（2026-09-16 に踏んだ）
+
+確認メールの「Confirm subscription」を開くと、**確認完了ページ自体に解除リンクが載っている**。
+そこを続けて押すとサブスクリプションは `Deleted` になり、`SubscriptionsConfirmed` は 0 のままになる。
+確認できたかは次で読む（`shor-braket-ro` で通る）。
+
+```bash
+topic="$(terraform -chdir=infra/terraform output -raw budget_alerts_topic_arn)"
+aws sns list-subscriptions-by-topic --topic-arn "$topic" --profile shor-braket-ro \
+  --query 'Subscriptions[].SubscriptionArn' --output text
+```
+
+| 表示 | 意味 |
+|---|---|
+| `PendingConfirmation` | メールは送られたが、まだ確認されていない |
+| `arn:aws:sns:...:shor-braket-budget-alerts:<uuid>` | **確認済み。これが正常** |
+| `Deleted` | 解除された。通知は届かない。作り直しが要る |
+
+`Deleted` になったら次の apply で作り直される（Terraform が消えたサブスクリプションを検出する）。
+**確認リンクを押したらそのままタブを閉じること。**
+
 ### Budget のタグフィルタはタグ有効化前でも作れる
 
 `TagKeyValue` = `user:project$shor-braket` のフィルタは、コスト配分タグが `Active` になる前でも
