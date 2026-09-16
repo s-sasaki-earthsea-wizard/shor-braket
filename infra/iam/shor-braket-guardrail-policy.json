@@ -32,6 +32,16 @@
       }
     },
     {
+      "Sid": "DenySpendingLimitChanges",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateSpendingLimit",
+        "braket:UpdateSpendingLimit",
+        "braket:DeleteSpendingLimit"
+      ],
+      "Resource": "*"
+    },
+    {
       "Sid": "DenyHybridJobsEntirely",
       "Effect": "Deny",
       "Action": [
