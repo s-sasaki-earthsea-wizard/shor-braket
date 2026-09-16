@@ -33,11 +33,15 @@ resource "awscc_braket_spending_limit" "qpu" {
 
   device_arn = each.value
 
-  # The API stores the amount as a string with at most two decimals.
-  spending_limit = format("%.2f", var.spending_limits[each.key].limit_usd)
+  # The API stores the amount as a string matching \d+(\.\d{1,2})? and normalizes it to its
+  # shortest form: it returned "0" for the "0.00" that format("%.2f", …) produced, which made
+  # every plan show a 0 -> 0.00 change (measured 2026-09-16). tostring() gives the same
+  # shortest form ("0", "5", "5.5", "5.25"), so the value round-trips unchanged.
+  spending_limit = tostring(var.spending_limits[each.key].limit_usd)
 
-  # Optional period; both ends or neither (validated in variables.tf). Without one the
-  # limit is always in force. A 0 USD limit blocks with or without a period.
+  # Optional period; both ends or neither (validated in variables.tf). Leaving it out does not
+  # mean "no period": the service assigns one running from the moment of creation to the year
+  # 2125, and awscc accepts that computed value without a diff. A 0 USD limit blocks either way.
   time_period = var.spending_limits[each.key].start_at == null ? null : {
     start_at = var.spending_limits[each.key].start_at
     end_at   = var.spending_limits[each.key].end_at

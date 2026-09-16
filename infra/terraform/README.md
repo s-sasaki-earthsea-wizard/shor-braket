@@ -246,5 +246,31 @@ Braket のサービスリンクロール `AWSServiceRoleForAmazonBraket` が結�
 - [x] ~~ライフサイクルポリシーの期間~~ → Glacier 移行なし（2026-09-16）
 - [x] ~~`.terraform.lock.hcl` をコミットするか~~ → コミットする（2026-09-16）
 - [x] ~~CloudWatch ロググループ~~ → 作らない（2026-09-16）
-- [ ] `spending_limit` の文字列表現（`"0.00"` で送っているが、API が `"0"` に正規化すると毎回 plan に差分が出る。初回 apply 後に確認）
-- [ ] Budget の `TagKeyValue` フィルタをタグ有効化前に作れるか（初回 apply で判明。落ちたら段 1 はフィルタ無しで作り、段 2 で足す）
+- [x] ~~`spending_limit` の文字列表現~~ → **`tostring()` を使う**（2026-09-16 実測）。下記
+- [x] ~~Budget の `TagKeyValue` フィルタをタグ有効化前に作れるか~~ → **作れる**（2026-09-16 実測）。下記
+
+---
+
+## 初回 apply の実測（2026-09-16）
+
+11 リソースを作成し、IAM ポリシー 3 本を in-place 更新した。そのとき分かった API の挙動が 2 つある。
+
+### `spending_limit` は最短表記に正規化される
+
+`format("%.2f", …)` が作る `"0.00"` を送ると、API は `"0"` を返す。値は同じでも文字列が違うので、
+**apply 直後の plan が毎回 `0 -> 0.00` の差分を出す**（実測）。`tostring()` は API と同じ最短表記
+（`"0"` / `"5"` / `"5.5"` / `"5.25"`）を作るので、これに変えて差分が消えることを確認した。
+`\d+(\.\d{1,2})?` のパターンも満たす。
+
+### `time_period` を省略しても API が期間を付ける
+
+「期間なし」は作れない。省略すると **作成時刻から 2125-12-30 まで**の期間が自動で入る。
+awscc はこれを computed として受け取るので plan に差分は出ないが、`search-spending-limits` の
+レスポンスには常に `timePeriod` が乗る。クライアント側（`gate/spending.py`）は期間ありを前提に読む。
+
+### Budget のタグフィルタはタグ有効化前でも作れる
+
+`TagKeyValue` = `user:project$shor-braket` のフィルタは、コスト配分タグが `Active` になる前でも
+そのまま作成できた。段 1 をフィルタ無しで作る回避策は要らなかった。ただし**集計されるのはタグ有効化後のデータだけ**
+なので、有効化前の `CalculatedSpend` は 0 のまま。`shor-braket-ro` で `describe-budget` が通ることも確認した
+（`budgets:ViewBudget`、無料）。

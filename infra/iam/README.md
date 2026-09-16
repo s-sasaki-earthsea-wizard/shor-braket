@@ -339,11 +339,16 @@ make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 実体は `infra/iam/verify-guardrails.sh`。**22 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
 1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
-### 実測結果（2026-09-15、`shor-braket-ro` で実行。節 1〜5 の **14/14 が期待どおり**、終了コード 0）
+### 実測結果（2026-09-15 に節 1〜5 の **14/14**、2026-09-16 に節 6 を加えて **22/22**。どちらも終了コード 0、`shor-braket-ro` で実行）
 
 ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になっているのが要点で、
 **2 つのロールが互いの領域に到達できないこと**を実物のポリシーで確認できている。
-節 6（Spending Limit、§6.2）は 2026-09-16 に追加したもので、Phase 3 の apply 後に測り直す。
+節 6（Spending Limit、§6.2）は Phase 3 の apply 後に測り直し、8 項目とも期待どおりだった。
+
+節 6 は実物でも裏が取れている。`aws braket search-spending-limits --profile shor-braket-ro` が
+3 機の Limit を返し（全機 `spendingLimit: "0"`、タグは `project` / `managed-by`）、
+同じプロファイルで `budgets describe-budget` も通った。読める側は実 API で、変えられない側は
+シミュレータで確認した形になる。
 
 | 節 | プリンシパル | 対象 | 期待 | 実測 |
 |---|---|---|---|---|
@@ -363,6 +368,8 @@ ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になって�
 | 4 | 〃 | `sts:AssumeRole` → aqt | `allowed` | ✅ `allowed` |
 | 5 | `shor-braket-monitor` | `CreateQuantumTask` | `implicitDeny` | ✅ `implicitDeny` |
 | 5 | 〃 | `sts:AssumeRole` → 両ロール | `implicitDeny` | ✅ `implicitDeny` ×2 |
+| 6 | 両ロール・両ユーザー | `braket:SearchSpendingLimits` | `allowed` | ✅ `allowed` ×4 |
+| 6 | 〃 | `Create` / `Update` / `DeleteSpendingLimit` | `explicitDeny` | ✅ `explicitDeny` ×4 |
 
 節 3 が `BoolIfExists` の効果そのもの。`Bool` で書いていたら、長期キーのリクエストには
 `aws:MultiFactorAuthPresent` キーが存在しないため Deny が発動せず、この行は `allowed` になる。

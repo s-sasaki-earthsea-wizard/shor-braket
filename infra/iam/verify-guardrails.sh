@@ -138,7 +138,7 @@ fi
 
 echo ""
 if [ "$failures" -eq 0 ]; then
-	printf "  \033[32mすべて期待どおり。\033[0m issue #2 の表に結果を記録すること。\n\n"
+	printf "  \033[32mすべて期待どおり。\033[0m infra/iam/README.md §7 の表に結果を記録すること。\n\n"
 else
 	printf "  \033[31m%d 件が期待と違う。\033[0m 適用済みのポリシーと infra/iam/*.json を突き合わせること。\n\n" "$failures"
 	exit 1

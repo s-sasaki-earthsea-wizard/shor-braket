@@ -15,7 +15,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
-| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **apply 待ち。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 / コスト配分タグの Terraform は 2026-09-16 に実装、plan は 11 add / 3 change（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)） |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。残るはコスト配分タグの有効化（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4)、約 24 時間後） |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
@@ -344,9 +344,10 @@ make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000
 
 ```
 
-`make submit-qpu` は現状、回路側の検査をすべて通したうえで Spending Limit が読めないことを理由に
-拒否する。これは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。
-実タスクの作成はまだ実装していない。
+`make submit-qpu` は回路側の検査をすべて通る。Spending Limit は
+[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で作られたが、3 機とも **0 USD** なので
+残額不足で拒否される。実験のたびに Terraform で配分を上げる。実タスクの作成は
+[#17](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/17) でまだ実装していない。
 
 ---
 
