@@ -3,23 +3,21 @@
 # cp terraform.tfvars.example terraform.tfvars して値を埋めること。
 # terraform.tfvars は .gitignore 対象 (*.tfvars)。値をコミットしないこと。
 #
-# 対応する変数定義は variables.tf (Phase 3 で作成)。
+# 対応する変数定義は variables.tf。
 
 # ---- アカウント / リージョン ----
 # 任意。設定すると、別アカウントのプロファイルで apply しようとしたときに作成前に失敗する
 aws_account_id = "000000000000"
 
-# 結果保存用 S3 バケットを置くリージョン。
+# 結果保存用 S3 バケット・SNS・Spending Limit・両 provider のリージョン。
 # Braket は「タスクを投入したリージョン」のバケットに結果を書く。採用した QPU 3 機は
 # すべて eu-north-1 にあり、SV1/DM1 は実行経路から外した (ADR-0004) ので、使うのはここだけ
 results_bucket_region = "eu-north-1"
 
 # ---- S3 ----
-# amazon-braket- プレフィクスを推奨 (AmazonBraketFullAccess の前提に合わせる)
+# amazon-braket- プレフィクス必須 (Braket のサービスリンクロールが書ける前提。validation で止まる)。
+# .env の BRAKET_RESULTS_BUCKET と同じ値にする
 results_bucket_name = "amazon-braket-CHANGE-ME"
-
-# 生の測定結果を Glacier に移すまでの日数
-results_transition_days = 90
 
 # ---- IAM ----
 # 操作者ユーザー。読み取り + 実行ロール / AQT ロールへの assume。MFA デバイスを登録する
@@ -35,10 +33,32 @@ monitor_user_name = "shor-braket-monitor"
 # デバイスの拒否リストは infra/iam/shor-braket-*-policy.json が唯一の定義。
 # Terraform はその JSON をそのまま読み込む (二重管理しない)
 
+# ---- Braket Spending Limit (QPU 費用のハードストップ、docs/03 §7) ----
+# 3 機とも 0 USD から始める。0 のあいだはサービス側が全タスクを拒否する。
+# 実験ごとに limit_usd と期間を書き換えて apply する。期間は start_at / end_at の両方を
+# ISO 8601 で指定するか、両方省略する (省略なら常時有効)。
+# 3 機の合計が 300 USD を超えると plan で止まる。300 は変数ではない。
+spending_limits = {
+  garnet  = { limit_usd = 0 }
+  emerald = { limit_usd = 0 }
+  ibex    = { limit_usd = 0 }
+}
+# 例: 経路確認 (Garnet 10 ショット = 0.3145 USD) のために 1 週間だけ 5 USD を開ける
+# spending_limits = {
+#   garnet  = { limit_usd = 5, start_at = "2026-09-17T00:00:00Z", end_at = "2026-09-24T00:00:00Z" }
+#   emerald = { limit_usd = 0 }
+#   ibex    = { limit_usd = 0 }
+# }
+
+# ---- コスト配分タグ (2 段 apply、issue #4) ----
+# 初回 apply は空。キーは課金記録に現れてから約 24 時間後にしか有効化できない。
+# stage 2 (インフラ apply の翌日) に "project"、stage 3 (最初のタスクの翌日) に "oracle" と "campaign" を足す
+active_cost_allocation_tags = []
+
 # ---- コスト ----
 monthly_budget_usd = 100
 
-# 予算アラートの通知先。SNS のサブスクリプション確認メールが届く
+# 予算アラートの通知先。SNS のサブスクリプション確認メールが届くので 1 回クリックする
 budget_notification_email = "CHANGE-ME@example.com"
 
 # アラートを出す閾値 (%). 予測値 100% も別途通知する
@@ -46,7 +66,8 @@ budget_alert_thresholds = [50, 80, 100]
 
 # ---- タグ ----
 # project は小文字。量子タスクに付くタグ (gate/tags.py) と同じキーにして、コスト配分タグ 1 つで
-# インフラとタスクの両方を束ねる (コスト配分タグのキーは大文字小文字を区別する)
+# インフラとタスクの両方を束ねる (コスト配分タグのキーは大文字小文字を区別する)。
+# Budget の cost_filter もこの project の値から組む
 tags = {
   project      = "shor-braket"
   "managed-by" = "terraform"

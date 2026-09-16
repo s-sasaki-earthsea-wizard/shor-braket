@@ -15,12 +15,13 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
-| **Phase 3** | **Terraform による AWS リソース定義** | **高** | 🚧 **次はここ。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。S3 / Budgets / Spending Limit / コスト配分タグは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。残るはコスト配分タグの有効化（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4)、約 24 時間後） |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
-**2026-09-14: N=15のローカル参照実装が完成。** AWS側はIAMまで構築済みで、QPU投入の前提となる
-S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)で追跡する。
+**2026-09-16: AWS 側のインフラが揃った。** IAM に加えて結果バケット、月次 Budget と SNS 通知、
+3 機の Braket Spending Limit を Terraform で作成した（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)）。
+Spending Limit は **3 機とも 0 USD** で、実験のたびに Terraform で配分を上げる。
 ローカルシミュレータは無料でAWS認証も不要なので、`make setup`だけで開発を始められる。
 
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
@@ -40,8 +41,8 @@ AQT は以前リクエストタグ `campaign=device-comparison` で IAM の Deny
 SDK バージョン・エミュレーションの合否・ショット数・費用・Spending Limit の残額を検査する。
 回路ハッシュは OpenQASM テキストではなく正規化した IR に対して取るので、空白や SDK の出力形式では動かず、
 配置や角度が変われば動く。密行列の参照回路は `Unitary` と verbatim box の不在で明示的に拒否される。
-**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ**で、これは
-[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。実タスクの作成はまだ行わない。
+**回路側の検査はすべて通る。** Spending Limit は [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で
+作られたが 3 機とも 0 USD なので、残額不足で拒否される。実タスクの作成はまだ行わない。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** IQM Garnet / Emerald、AQT IBEX Q1 の校正データを
 `devices/snapshots/` にコミットし、`make emulate-all` が Docker 内（ネットワーク無効）で verbatim 検証と
@@ -126,12 +127,13 @@ Shor の実機デモの多くは、位数 $r$ を**あらかじめ知った上�
 
 ### 3. Terraform で管理するもの
 
-- 結果保存用 S3 バケット（`amazon-braket-*` プレフィクス）+ ライフサイクルポリシー
-- Braket 実行用 IAM ロール / ポリシー（デバイス ARN 限定、最小権限）
-- AWS Budgets + SNS トピック（コスト警告）
-- CloudWatch ロググループ
+- 結果保存用 S3 バケット（`amazon-braket-*` プレフィクス必須、eu-north-1 に 1 つ。Glacier 移行は無し）
+- Braket 実行用 IAM ユーザー / ロール / ポリシー（デバイス ARN の Deny、MFA 必須の assume、最小権限）
+- AWS Budgets + SNS トピック（月次 100 USD、コスト配分タグ `project` でフィルタ）
+- Braket Spending Limit × 3 機（初期値 0 USD、合計 300 USD が天井、変更は Terraform のみ）
+- コスト配分タグ `project` / `oracle` / `campaign` の有効化（2 段 apply）
 
-**管理しないもの**: 量子タスクそのもの。タスクは使い捨ての実行単位であり、Terraform の状態管理対象として不適切。SDK から投入し、結果は S3 に落とす。
+**管理しないもの**: 量子タスクそのもの（使い捨ての実行単位であり、Terraform の状態管理対象として不適切。SDK から投入し、結果は S3 に落とす）、CloudWatch ロググループ（量子タスクはログを書かない。監査は CloudTrail）、Braket の規約同意と SNS の確認クリック（コンソール / メール）。
 
 ---
 
@@ -163,7 +165,7 @@ shor-braket/
 ├── tests/                       # pytest
 ├── infra/
 │   ├── iam/                     # IAM ポリシー JSON（Deny ガードレール込み）
-│   └── terraform/               # IAM 実装済み。S3 / Budgets / Spending Limit は未実装
+│   └── terraform/               # IAM / S3 / Budgets + SNS / Spending Limit / コスト配分タグ
 └── runs/
     ├── validated/               # 検証済みレコード（コミット対象）
     └── raw/                     # 生の測定結果（gitignore）
@@ -343,9 +345,10 @@ make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000
 
 ```
 
-`make submit-qpu` は現状、回路側の検査をすべて通したうえで Spending Limit が読めないことを理由に
-拒否する。これは [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。
-実タスクの作成はまだ実装していない。
+`make submit-qpu` は回路側の検査をすべて通る。Spending Limit は
+[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で作られたが、3 機とも **0 USD** なので
+残額不足で拒否される。実験のたびに Terraform で配分を上げる。実タスクの作成は
+[#17](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/17) でまだ実装していない。
 
 ---
 
@@ -377,8 +380,9 @@ N = 6 なら合計 4 qubit で済み、回路が大幅に浅くなる。
 Braket Spending Limitは全機0 USDで作成し、実験時だけTerraformで配分する。3機合計が300 USDを
 超える設定はapplyを失敗させる（[ADR-0003](docs/adr/0003-reference-circuit-and-cost-guardrails.md)）。
 
-現在のIAMガードレールは拒否リスト方式で実装済み。Phase 3では3機以外を拒否する方式へ改訂し、
-IAM Policy Simulatorで実測してから適用する。設計根拠と検証手順は
+IAMガードレールは拒否リスト方式（許可リスト方式は未検証、[`infra/iam/README.md`](infra/iam/README.md) §6）。
+Spending Limitの作成・変更・削除は全プリンシパルでDenyし、読み取りだけを許可する。変更はTerraform
+（admin ロール + MFA）だけ。設計根拠と検証手順は
 [`docs/03-execution-gate.md`](docs/03-execution-gate.md)と[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)。
 
 > **ショット数を制限する IAM 条件キーは存在しない。**

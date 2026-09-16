@@ -105,7 +105,7 @@ iam-render:  ## IAM ポリシーのプレースホルダを .env の値で置換
 	done
 
 .PHONY: iam-verify
-iam-verify:  ## IAM ガードレールの効果をポリシーシミュレータで実測する (課金なし。2 ロールを検証)
+iam-verify:  ## IAM ガードレールの効果をポリシーシミュレータで実測する (課金なし。22 項目、Spending Limit 含む)
 	$(call require_env,ACCOUNT_ID,AWS_ACCOUNT_ID,iam-verify)
 	@ACCOUNT_ID="$(ACCOUNT_ID)" \
 		EXEC_PRINCIPAL="$(if $(PRINCIPAL),$(PRINCIPAL),role/ShorBraketExecutionRole)" \
@@ -119,7 +119,7 @@ tf-fmt:  ## Terraform のコードを整形する
 	terraform -chdir=$(TF_DIR) fmt -recursive
 
 .PHONY: tf-init
-tf-init:  ## Terraform を初期化する
+tf-init:  ## Terraform を初期化する (aws / awscc provider を取得。AWS には触らない)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-init)
 	AWS_PROFILE=$(TF_PROFILE) terraform -chdir=$(TF_DIR) init
 
@@ -149,7 +149,7 @@ tf-apply:  ## Terraform の変更を適用する (tf-plan の出力を使う。A
 	$(call tf_run,apply tfplan)
 
 .PHONY: tf-destroy
-tf-destroy:  ## Terraform で作成したリソースを破棄する (⚠️ S3 の結果も消える)
+tf-destroy:  ## Terraform で作成したリソースを破棄する (⚠️ Spending Limit は prevent_destroy、バケットは空でないと失敗する)
 	$(call require_env,TF_PROFILE,AWS_PROFILE_ADMIN,tf-destroy)
 	$(refuse_root)
 	$(call tf_run,destroy)

@@ -204,8 +204,10 @@ validated レコードを **コミット対象にする**のは監査性のた�
 [gate]   blocked by             spending limit: ...
 ```
 
-**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ。** これは issue #3 で
-Terraform がそれを作り、`braket:SearchSpendingLimits` を許可すれば開く。
+**回路側の検査はすべて通る。** 2026-09-16 に Phase 3 の Terraform（`infra/terraform/spending_limits.tf`）が
+3 機の Limit を作り、readonly / execute ポリシーが `braket:SearchSpendingLimits` を許可した（issue #3）。
+**Limit は 3 機とも 0 USD** なので、ゲートは「読めない」ではなく「残額が足りない」で閉じる。
+実験のたびに Terraform で配分を上げる。クライアントから実 API を読む配線は issue #17。
 
 **読めない Spending Limit は「余裕がある」とみなさない。** 読めない場合も残額不足と同じく拒否する。
 サービス側の停止機構はこのリポジトリの外にある唯一の防御なので、その不在を黙って通さない。
@@ -300,22 +302,26 @@ Spending Limit は QPU デバイスごとのハードストップである。残
 `limit - current spend - queued spend` で計算され、投入タスクの概算が残額を超える場合は
 `CreateQuantumTask` が拒否される。
 
-Terraform では次を必須とする。
+Terraform（`infra/terraform/spending_limits.tf`、2026-09-16 実装）は次を満たす。
 
-- Garnet / Emerald / IBEX-Q1 の全機に作成し、初期値を各 0 USD にする
-- 変数で指定した 3 機の配分合計が 300 USD を超える場合、variable validation と
-  resource precondition の両方で apply を失敗させる
-- 300 USD の天井は変更可能な入力変数にしない
-- `prevent_destroy = true` で誤削除を防ぐ
-- `time_period` を実験単位で設定し、期間外の投入を拒否する
-- operator / monitor / execution role は `SearchSpendingLimits` だけ許可し、
-  Create / Update / Delete を明示的に拒否する
+- Garnet / Emerald / IBEX-Q1 の全機に `awscc_braket_spending_limit` を作り、初期値は各 0 USD
+- tfvars の `spending_limits`（論理名 → `limit_usd` / `start_at` / `end_at`）で配分する。
+  3 機の合計が 300 USD を超えると variable validation と resource precondition の両方で止まる
+- 300 USD の天井は local 定数で、入力変数にしない
+- `prevent_destroy = true`。プロジェクトを畳むときだけその行を外す
+- `time_period` は任意。設定するなら両端が必須（API の仕様）で、期間外の投入は拒否される。
+  初回 apply では未設定にし、実験のたびに limit と期間を書き換える
+- 全プリンシパル（両ユーザー・両ロール）は `SearchSpendingLimits` だけ許可され、
+  Create / Update / Delete は guardrail の `DenySpendingLimitChanges` が拒否する（`infra/iam/README.md` §6.2）
+
+API の形（botocore 1.43.93 で確認）: 金額は文字列で小数 2 桁まで（`spendingLimit` / `totalSpend` / `queuedSpend`）、
+期間は `timePeriod.startAt` / `endAt`（epoch 秒、boto3 は `datetime` で返す）。`gate/spending.py` はこの形を読む。
 
 Spending Limit は**デバイス単位**なので、各機を 300 USD にすると合計 900 USD になり得る。
 必ず3機の合計値を検証する。QPU投入前のクライアントも現在値と残額を読み、ローカルの概算と
 AWS側の残額の両方を表示する。
 
-Spending Limit は SV1 / DM1、S3、ノートブック、Hybrid Job の EC2 費用を対象にしない。
+Spending Limit は S3、ノートブック、Hybrid Job の EC2 費用を対象にしない。
 これらは次節の AWS Budget とクライアント側確認で扱う。
 
 ---
@@ -335,7 +341,8 @@ Spending Limit は SV1 / DM1、S3、ノートブック、Hybrid Job の EC2 費�
 - `--max-cost` の既定を **10 USD/回** とし、超える場合は明示指定を要求する
 - 月次累計が予算の 80% を超えたら警告、100% を超えたら `--force` なしでは投入拒否
 
-AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SNS に通知する。
+AWS Budgets のアラートは 50% / 80% / 100% / 予測 100% の 4 段階を SNS トピック `shor-braket-budget-alerts` に
+通知し、email サブスクリプションで受ける（`infra/terraform/budget.tf`）。確認メールのリンクを 1 回クリックするまで届かない。
 
 Budget はコスト配分タグ `project=shor-braket` でフィルタする（2026-09-15）。サービス単位にしないのは、
 プロジェクトが Braket 以外に S3 / CloudWatch も使うため。タグが有効化されるまで Budget は 0 を示す。

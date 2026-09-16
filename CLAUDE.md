@@ -27,8 +27,22 @@ issue #6 は完了。issue #7 の主要項目も 2026-09-14 に決着した。**
 結果は `infra/iam/README.md` §7 に記録済み（issue #2 は完了）。旧 `shor-braket-assume-exec` は消え、孤児なし。
 請求情報への IAM アクセスは有効化済みを確認した。**残りは #1 → #3 → #4 → #17。**
 順番は **手順 0 ローカル準備（済） → 1 IAM の plan / apply（済） → 2 `iam-verify`（済） →
-3 operator の MFA と exec / aqt プロファイル（#1、未）→ 4–5 Phase 3 の Terraform（#3）→
+3 operator の MFA と exec / aqt プロファイル（#1、済）→ 4–5 Phase 3 の Terraform（#3、済）→
 6 コスト配分タグの有効化（#4、キー出現まで約 24 時間）→ 7 Garnet 10 ショットの経路確認（#17）**。
+**残るは #4 → #17。**
+**2026-09-16: #1 と #3 を片付けた。** operator の MFA を登録し、exec / aqt の両プロファイルで
+assumed-role を確認（#1 クローズ）。Phase 3 の Terraform（`s3.tf` / `budget.tf` / `spending_limits.tf` /
+`cost_allocation_tags.tf`、awscc provider、IAM の `SearchSpendingLimits` 許可と Create / Update / Delete の Deny）を
+書き、**Syota さんが apply した**（11 作成 / 3 in-place、destroy なし）。結果バケットは
+`amazon-braket-shor-braket-earthsea-wizard`（`amazon-braket-` は Braket のサービスリンクロールが書ける範囲なので必須）。
+apply 後の実測で API の挙動が 2 つ分かった。**`spending_limit` は最短表記に正規化される**ので
+`format("%.2f", …)` の `"0.00"` は毎回 plan に差分を作る（`tostring()` に変更して解消）。
+**`time_period` を省略しても API が作成時刻〜2125 年の期間を付ける**（awscc は computed として受けるので差分なし）。
+Budget のタグフィルタはタグ有効化前でも作れた。
+決定: CloudWatch ロググループは作らない、S3 の Glacier 移行は無し、Spending Limit の期間は
+初回未設定で実験ごとに設定、Budget 通知は SNS + email、`.terraform.lock.hcl` はコミット、stage 2 の Garnet は 5 USD。
+`gate/spending.py` が実 API と違うフィールド名（`currentSpend` / `timePeriod.start`）を読んでいたバグは PR #21 で修正。
+**`results_bucket_name` は `amazon-braket-` プレフィクスが必須**（validation）。
 **Terraform は admin で回す。plan は Claude が回してよく、apply / destroy は Syota さん本人が実行する。**
 admin を使うのは Terraform と鍵・MFA の発行だけで、日常のコマンドはプロジェクトの IAM（ro / exec / aqt / monitor）で回す。
 Budget はコスト配分タグ `project` でフィルタし、月次累計は Budgets の `CalculatedSpend` から取る（Cost Explorer は使わない）。
@@ -60,8 +74,9 @@ SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（up
 `submit-qpu`、issue #8）。回路ハッシュは OpenQASM テキストではなく**正規化した IR**（命令列の辞書を JSON 化）
 に対して取る。**target の順序は保存する**（`sorted(targets)` だと `cnot(0,1)` と `cnot(1,0)` が衝突する。
 docs/03 §3.2 の初稿を訂正した）。レコードの失効判定で実質の主判定になるのは日数ではなく
-`capabilities_sha256` の一致。**投入ゲートは回路側の検査を全部通り、止めているのは Spending Limit だけ**で、
-これは issue #3 が開く。`submit()` は常に `NotImplementedError` を投げる。
+`capabilities_sha256` の一致。**投入ゲートは回路側の検査を全部通り、止めていたのは Spending Limit だけ**だった。2026-09-16 に #3 が
+それを作ったので、ゲートを閉じているのは Limit が 0 USD であることと `submit()` が常に
+`NotImplementedError` を投げること（#17）になった。
 **読めない Spending Limit を「余裕あり」とみなさない**（不在を黙って通さない）。
 
 **ローカル開発の土台は実装済み。** `docker/Dockerfile` / `docker/docker-compose.yml` を使い、
@@ -228,9 +243,14 @@ Co-Authored-By: Claude <noreply@anthropic.com>
   validated レコードを発行した回路そのものを投げられない。AWS 経路の確認は Garnet に 10 ショット
   （0.3145 USD）を投げて行う。**結果バケットは eu-north-1 の 1 つだけ。** eu-west-2 は使わない
 - **ショット数を制限する IAM 条件キーは存在しない。** クライアント側 + AWS Budgets で守る
-- Terraform で管理するもの: S3（結果保存、**eu-north-1 の 1 つだけ**）、IAM、AWS Budgets + SNS、
-  CloudWatch ロググループ
-- Terraform で管理しないもの: 量子タスク（使い捨ての実行単位であり状態管理対象として不適切）
+- Terraform で管理するもの: S3（結果保存、**eu-north-1 の 1 つだけ**、`amazon-braket-` 必須、Glacier 移行なし）、IAM、
+  AWS Budgets + SNS、Braket Spending Limit × 3（awscc、初期値 0 USD、合計 300 USD は local 定数、`prevent_destroy`）、
+  コスト配分タグの有効化（変数で 2 段 apply）
+- Terraform で管理しないもの: 量子タスク（使い捨ての実行単位であり状態管理対象として不適切）、
+  CloudWatch ロググループ（量子タスクはログを書かない。監査は CloudTrail）
+- **Spending Limit の変更は Terraform だけ。** 全プリンシパルが `SearchSpendingLimits` のみ許可、Create / Update / Delete は
+  guardrail で Deny。期間は両端必須で、初回は未設定。実験ごとに tfvars の `spending_limits` を書き換えて apply する
+- `.terraform.lock.hcl` はコミットする（provider のハッシュ固定。アカウント情報は入らない）
 - **Terraform ステートはローカル管理**（`backend.tf` を置かない）
 - Braket の初回有効化（コンソールでの利用規約同意）は Terraform 不可。手動手順として記録する
 
@@ -263,6 +283,13 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 月次累計の取得元 | AWS Budgets の `CalculatedSpend`（無料、`budgets:ViewBudget`）。Cost Explorer は使わない | issue #7 |
 | コスト配分タグの有効化 | Terraform（`aws_ce_cost_allocation_tag`）。キー出現まで約 24 時間。本実験は有効化から 24 時間後以降 | issue #4 |
 | `default_tags` のキー | `project` を小文字にしてタスクのタグと揃える。`AmazonBraket` タグは廃止 | `infra/terraform/variables.tf` |
+| CloudWatch ロググループ | 作らない。量子タスクはログを書かず、監査は CloudTrail（2026-09-16） | `infra/terraform/README.md` |
+| S3 ライフサイクル | Glacier 移行なし。小さなオブジェクトでは overhead で逆に高い。実験後は NAS に写して destroy（2026-09-16） | `infra/terraform/README.md` |
+| Spending Limit の期間 | 初回 apply は未設定、実験ごとに両端を設定（2026-09-16） | `infra/terraform/README.md` |
+| Budget 通知 | SNS トピック + email サブスクリプション。確認クリックは手作業（2026-09-16） | `infra/terraform/budget.tf`、issue #4 |
+| `.terraform.lock.hcl` | コミットする（2026-09-16） | `infra/terraform/README.md` |
+| 経路確認時の Garnet の Limit | **5 USD**（10 ショット 0.3145 USD、再試行の余裕込み。stage 2 の apply で上げる） | issue #17 |
+| 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
 
 ---
 
@@ -273,6 +300,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
-| 3 | Terraform による AWS リソース定義 | **高** | 🚧 **次はここ**。IAM は完成（2026-09-15 に ADR-0004 を apply、`iam-verify` 14/14）。残りは #1（operator の MFA）→ #3（S3 / Budgets / Spending Limit）→ #4（コスト配分タグ） |
+| 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。残るは SNS の確認クリックと #4 の stage 2 / 3（約 24 時間後） |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ issue #17 |

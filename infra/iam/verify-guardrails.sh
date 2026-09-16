@@ -121,9 +121,24 @@ if [ -n "$MONITOR_PRINCIPAL" ]; then
 		"arn:aws:iam::${ACCOUNT_ID}:${AQT_PRINCIPAL}"
 fi
 
+section "6. Spending Limit は誰でも読めるが、誰も変えられない" \
+	"期待値: SearchSpendingLimits は allowed、UpdateSpendingLimit は explicitDeny（guardrail）"
+expect allowed "exec / Search" "$EXEC_PRINCIPAL" braket:SearchSpendingLimits "*" "$MFA_TRUE"
+expect explicitDeny "exec / Update" "$EXEC_PRINCIPAL" braket:UpdateSpendingLimit "*" "$MFA_TRUE"
+expect allowed "aqt  / Search" "$AQT_PRINCIPAL" braket:SearchSpendingLimits "*" "$MFA_TRUE"
+expect explicitDeny "aqt  / Delete" "$AQT_PRINCIPAL" braket:DeleteSpendingLimit "*" "$MFA_TRUE"
+if [ -n "$OPERATOR_PRINCIPAL" ]; then
+	expect allowed "operator / Search" "$OPERATOR_PRINCIPAL" braket:SearchSpendingLimits "*" "$MFA_TRUE"
+	expect explicitDeny "operator / Create" "$OPERATOR_PRINCIPAL" braket:CreateSpendingLimit "*" "$MFA_TRUE"
+fi
+if [ -n "$MONITOR_PRINCIPAL" ]; then
+	expect allowed "monitor / Search" "$MONITOR_PRINCIPAL" braket:SearchSpendingLimits "*" "$MFA_TRUE"
+	expect explicitDeny "monitor / Update" "$MONITOR_PRINCIPAL" braket:UpdateSpendingLimit "*" "$MFA_TRUE"
+fi
+
 echo ""
 if [ "$failures" -eq 0 ]; then
-	printf "  \033[32mすべて期待どおり。\033[0m issue #2 の表に結果を記録すること。\n\n"
+	printf "  \033[32mすべて期待どおり。\033[0m infra/iam/README.md §7 の表に結果を記録すること。\n\n"
 else
 	printf "  \033[31m%d 件が期待と違う。\033[0m 適用済みのポリシーと infra/iam/*.json を突き合わせること。\n\n" "$failures"
 	exit 1

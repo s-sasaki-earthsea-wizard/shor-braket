@@ -217,8 +217,9 @@ Spending Limitはデバイス単位なので、3機の配分合計をTerraform�
 
 - Braket はアカウントごとに**コンソールでの有効化（利用規約への同意）が必要**。
   Terraform では実施できないため手動手順として記録する
-- 結果保存用 S3 バケットは **`amazon-braket-` プレフィクスを推奨**。
-  AWS 管理ポリシー `AmazonBraketFullAccess` がこのプレフィクスを前提としている
+- 結果保存用 S3 バケットは **`amazon-braket-` プレフィクスが必須**（Terraform の validation で止まる）。
+  Braket のサービスリンクロールが結果を書けるのはこのプレフィクスのバケットだけで、
+  AWS 管理ポリシー `AmazonBraketFullAccess` も同じ前提を置いている
 - **root アカウントのアクセスキーで実行しない。** Terraform で専用 IAM ロールを作る
 
 ---
