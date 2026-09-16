@@ -19,8 +19,9 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
 | Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
 
-**2026-09-14: N=15のローカル参照実装が完成。** AWS側はIAMまで構築済みで、QPU投入の前提となる
-S3、Budgets、Spending Limitを[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)で追跡する。
+**2026-09-16: AWS 側のインフラが揃った。** IAM に加えて結果バケット、月次 Budget と SNS 通知、
+3 機の Braket Spending Limit を Terraform で作成した（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)）。
+Spending Limit は **3 機とも 0 USD** で、実験のたびに Terraform で配分を上げる。
 ローカルシミュレータは無料でAWS認証も不要なので、`make setup`だけで開発を始められる。
 
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
@@ -40,8 +41,8 @@ AQT は以前リクエストタグ `campaign=device-comparison` で IAM の Deny
 SDK バージョン・エミュレーションの合否・ショット数・費用・Spending Limit の残額を検査する。
 回路ハッシュは OpenQASM テキストではなく正規化した IR に対して取るので、空白や SDK の出力形式では動かず、
 配置や角度が変われば動く。密行列の参照回路は `Unitary` と verbatim box の不在で明示的に拒否される。
-**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ**で、これは
-[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) が開く。実タスクの作成はまだ行わない。
+**回路側の検査はすべて通る。** Spending Limit は [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で
+作られたが 3 機とも 0 USD なので、残額不足で拒否される。実タスクの作成はまだ行わない。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** IQM Garnet / Emerald、AQT IBEX Q1 の校正データを
 `devices/snapshots/` にコミットし、`make emulate-all` が Docker 内（ネットワーク無効）で verbatim 検証と
