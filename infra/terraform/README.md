@@ -301,6 +301,14 @@ aws sns get-subscription-attributes --subscription-arn '<返ってきた Subscri
 `"true"` なら解除には `sns:Unsubscribe` の権限が要り、リンクでは消えない。Terraform に対応する引数は無いので、
 サブスクリプションを作り直したとき（destroy / recreate のたび）にこの手順を繰り返す。
 
+**実証（2026-09-17 01:27〜02:27）**: 認証付きで確認し直したあと、解除リンク入りの通知メールを 1 通配信したうえで
+30 分おきに 3 回読み、`SubscriptionsConfirmed` は 1 のまま動かなかった。対策前は確認から 28 分で `Deleted` になっていた。
+配信経路そのもの（eu-north-1 のトピック → メール）も `aws sns publish` で実証済み。
+**ただし Budgets → SNS の区間は未実証。** Budget 作成時に AWS がトピックへのアクセスを検証して通っており、
+現行ドキュメントも同一アカウントとしか書いていないが、実際の発火は確認していない
+（先行事例 `gw230529-einstein-toolkit-aws-tf` は Budgets 用トピックを us-east-1 に固定している）。
+実証するならタグ有効化後に閾値を一時的に下げて発火させる。
+
 状態の読み分け:
 
 ```bash
