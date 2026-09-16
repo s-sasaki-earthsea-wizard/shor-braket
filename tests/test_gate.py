@@ -34,7 +34,11 @@ from shor_braket.gate.record import (
     record_path,
     save_record,
 )
-from shor_braket.gate.spending import SpendingLimitStatus, spending_limit_from_api
+from shor_braket.gate.spending import (
+    SpendingLimitStatus,
+    aws_spending_limit_lookup,
+    spending_limit_from_api,
+)
 from shor_braket.gate.tags import build_tags
 from shor_braket.quantum.native import verbatim
 from shor_braket.quantum.reference import build_reference_circuit
@@ -418,12 +422,89 @@ def test_spending_limit_is_parsed_without_binary_floats():
         {
             "deviceArn": "arn",
             "spendingLimit": 10.1,
-            "currentSpend": 0.2,
+            "totalSpend": 0.2,
             "queuedSpend": 0,
-            "timePeriod": {"start": "2026-09-01T00:00:00+00:00", "end": None},
+            "timePeriod": {"startAt": "2026-09-01T00:00:00+00:00", "endAt": None},
         }
     )
     assert status.remaining_usd == Decimal("9.9")
+
+
+def test_spending_limit_is_parsed_from_the_real_response_shape():
+    # One entry of SearchSpendingLimits as botocore 1.43.93 returns it: money as strings,
+    # the period as timezone-aware datetimes. The gate once read `currentSpend` and
+    # `timePeriod.start`, which the API does not have; that made every limit look unspent.
+    status = spending_limit_from_api(
+        {
+            "spendingLimitArn": "arn:aws:braket:eu-north-1:000000000000:spending-limit/x",
+            "deviceArn": "arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet",
+            "timePeriod": {
+                "startAt": datetime(2026, 9, 1, tzinfo=UTC),
+                "endAt": datetime(2026, 9, 30, tzinfo=UTC),
+            },
+            "spendingLimit": "10.10",
+            "queuedSpend": "0.00",
+            "totalSpend": "0.20",
+            "createdAt": datetime(2026, 8, 31, tzinfo=UTC),
+            "updatedAt": datetime(2026, 8, 31, tzinfo=UTC),
+            "tags": {"project": "shor-braket"},
+        }
+    )
+    assert status.current_spend_usd == Decimal("0.20")
+    assert status.remaining_usd == Decimal("9.90")
+    assert status.active_from == "2026-09-01T00:00:00+00:00"
+    assert status.active_to == "2026-09-30T00:00:00+00:00"
+    assert status.is_active(datetime(2026, 9, 15, tzinfo=UTC))
+    assert not status.is_active(datetime(2026, 10, 1, tzinfo=UTC))
+    json.dumps(status.to_dict())  # timestamps come out as strings, so the report serializes
+
+
+def test_spending_limit_period_without_timezone_is_taken_as_utc():
+    status = SpendingLimitStatus(
+        device_arn="arn",
+        limit_usd=Decimal("1"),
+        current_spend_usd=Decimal("0"),
+        queued_spend_usd=Decimal("0"),
+        active_from="2026-09-01T00:00:00",
+        active_to="2026-09-02T00:00:00",
+    )
+    assert status.is_active(datetime(2026, 9, 1, 12, tzinfo=UTC))
+    assert status.is_active(datetime(2026, 9, 1, 12))
+    assert not status.is_active(datetime(2026, 9, 3, tzinfo=UTC))
+
+
+def test_spending_limit_lookup_filters_by_device_and_follows_pages():
+    calls: list[dict] = []
+
+    class FakeClient:
+        def search_spending_limits(self, **kwargs):
+            calls.append(kwargs)
+            if "nextToken" not in kwargs:
+                return {"spendingLimits": [], "nextToken": "page-2"}
+            return {
+                "spendingLimits": [
+                    {
+                        "deviceArn": "arn:garnet",
+                        "spendingLimit": "5.00",
+                        "totalSpend": "0.31",
+                        "queuedSpend": "0.00",
+                    }
+                ]
+            }
+
+    lookup = aws_spending_limit_lookup(FakeClient())
+
+    status = lookup("arn:garnet")
+    assert status is not None
+    assert status.remaining_usd == Decimal("4.69")
+    assert calls[0] == {
+        "filters": [{"name": "deviceArn", "values": ["arn:garnet"], "operator": "EQUAL"}]
+    }
+    assert calls[1]["nextToken"] == "page-2"
+
+    # The fake ignores the filter, so this checks that entries for another device are not
+    # mistaken for the requested one.
+    assert lookup("arn:emerald") is None
 
 
 # --- submission path ---------------------------------------------------------------------

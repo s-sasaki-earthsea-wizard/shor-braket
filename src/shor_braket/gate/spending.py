@@ -10,13 +10,18 @@ confirming, what the service is going to compare against.
 
 The lookup is a plain callable so that the gate can be exercised without AWS. Tests pass a stub;
 :func:`aws_spending_limit_lookup` is the real one and is only built when a submission is actually
-attempted. It needs ``braket:SearchSpendingLimits``, which the read-only policy does not grant
-yet (issue #3).
+attempted. It needs ``braket:SearchSpendingLimits``, which the read-only and execute policies
+grant (issue #3).
+
+Field names follow the ``SearchSpendingLimits`` response as botocore models it: money arrives as
+strings (``spendingLimit`` / ``totalSpend`` / ``queuedSpend``, at most two decimals) and the
+optional ``timePeriod`` carries ``startAt`` / ``endAt`` as timezone-aware ``datetime`` objects.
+Timestamps are normalized to ISO 8601 strings here so the preflight report stays JSON-serializable.
 """
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -28,16 +33,45 @@ UNAVAILABLE = "unavailable"
 class BraketSpendingClient(Protocol):
     """The one call this module needs from a boto3 Braket client."""
 
-    def search_spending_limits(
-        self, *, filters: Sequence[Mapping[str, object]]
-    ) -> Mapping[str, Any]:
-        """Return the account's spending limits."""
+    def search_spending_limits(self, **kwargs: object) -> Mapping[str, Any]:
+        """Return the account's spending limits, optionally filtered and paginated."""
         ...
+
+
+def _moment(value: object) -> datetime:
+    """Coerce an API timestamp or an ISO 8601 string to a timezone-aware UTC ``datetime``.
+
+    Args:
+        value: A ``datetime`` (what botocore returns for ``startAt`` / ``endAt``), an epoch
+            number, or an ISO 8601 string. A naive value is taken as UTC.
+
+    Returns:
+        The same instant as an aware ``datetime`` in UTC.
+    """
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, int | float):
+        moment = datetime.fromtimestamp(value, tz=UTC)
+    else:
+        moment = datetime.fromisoformat(str(value))
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=UTC)
+    return moment.astimezone(UTC)
+
+
+def _iso_utc(value: object) -> str | None:
+    """Normalize an optional API timestamp to an ISO 8601 UTC string, or ``None``."""
+    return None if value is None else _moment(value).isoformat()
 
 
 @dataclass(frozen=True)
 class SpendingLimitStatus:
-    """The service-side budget for one device."""
+    """The service-side budget for one device.
+
+    ``current_spend_usd`` is the API's ``totalSpend``: what the device has already consumed in
+    the current period. ``active_from`` / ``active_to`` are ISO 8601 strings; ``None`` means the
+    limit has no period and is always in force.
+    """
 
     device_arn: str
     limit_usd: Decimal
@@ -56,15 +90,16 @@ class SpendingLimitStatus:
         """Report whether the limit's time period covers this moment.
 
         Args:
-            now: Point in time to test; defaults to the current UTC time.
+            now: Point in time to test; defaults to the current UTC time. A naive value is
+                taken as UTC.
 
         Returns:
             ``True`` when the limit is in force. A limit with no period is always in force.
         """
-        when = now or datetime.now(UTC)
-        if self.active_from and when < datetime.fromisoformat(self.active_from):
+        when = _moment(now) if now is not None else datetime.now(UTC)
+        if self.active_from and when < _moment(self.active_from):
             return False
-        return not (self.active_to and when > datetime.fromisoformat(self.active_to))
+        return not (self.active_to and when > _moment(self.active_to))
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the status with the money as strings."""
@@ -101,23 +136,24 @@ def _decimal(value: object) -> Decimal:
     return Decimal(str(value)) if value is not None else Decimal("0")
 
 
-def spending_limit_from_api(payload: dict[str, Any]) -> SpendingLimitStatus:
+def spending_limit_from_api(payload: Mapping[str, Any]) -> SpendingLimitStatus:
     """Convert one ``SearchSpendingLimits`` entry into a status.
 
     Args:
-        payload: One element of the API's ``spendingLimits`` list.
+        payload: One element of the API's ``spendingLimits`` list. Money fields are strings,
+            ``timePeriod.startAt`` / ``endAt`` are ``datetime`` objects when present.
 
     Returns:
-        The status, with all money as ``Decimal``.
+        The status, with all money as ``Decimal`` and timestamps as ISO 8601 UTC strings.
     """
     period = payload.get("timePeriod") or {}
     return SpendingLimitStatus(
         device_arn=str(payload.get("deviceArn", "")),
         limit_usd=_decimal(payload.get("spendingLimit")),
-        current_spend_usd=_decimal(payload.get("currentSpend")),
+        current_spend_usd=_decimal(payload.get("totalSpend")),
         queued_spend_usd=_decimal(payload.get("queuedSpend")),
-        active_from=period.get("start"),
-        active_to=period.get("end"),
+        active_from=_iso_utc(period.get("startAt")),
+        active_to=_iso_utc(period.get("endAt")),
     )
 
 
@@ -130,13 +166,22 @@ def aws_spending_limit_lookup(client: BraketSpendingClient) -> SpendingLimitLook
 
     Returns:
         A callable that returns the limit for a device ARN, or ``None`` when the device has none.
+        The request is filtered by ``deviceArn`` (the only filter the API supports) and follows
+        ``nextToken`` pages; the device ARN is still checked on every entry rather than trusted.
     """
 
     def lookup(device_arn: str) -> SpendingLimitStatus | None:
-        response = client.search_spending_limits(filters=[])
-        for entry in response.get("spendingLimits", []):
-            if entry.get("deviceArn") == device_arn:
-                return spending_limit_from_api(entry)
-        return None
+        kwargs: dict[str, object] = {
+            "filters": [{"name": "deviceArn", "values": [device_arn], "operator": "EQUAL"}]
+        }
+        while True:
+            response = client.search_spending_limits(**kwargs)
+            for entry in response.get("spendingLimits", []):
+                if entry.get("deviceArn") == device_arn:
+                    return spending_limit_from_api(entry)
+            token = response.get("nextToken")
+            if not token:
+                return None
+            kwargs["nextToken"] = token
 
     return lookup
