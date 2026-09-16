@@ -204,9 +204,10 @@ validated レコードを **コミット対象にする**のは監査性のた�
 [gate]   blocked by             spending limit: ...
 ```
 
-**現状、回路側の検査はすべて通り、止めているのは Spending Limit だけ。** Phase 3 の Terraform
-（`infra/terraform/spending_limits.tf`）が 3 機の Limit を作り、readonly / execute ポリシーが
-`braket:SearchSpendingLimits` を許可する（issue #3）。クライアントから実 API を読む配線は issue #17。
+**回路側の検査はすべて通る。** 2026-09-16 に Phase 3 の Terraform（`infra/terraform/spending_limits.tf`）が
+3 機の Limit を作り、readonly / execute ポリシーが `braket:SearchSpendingLimits` を許可した（issue #3）。
+**Limit は 3 機とも 0 USD** なので、ゲートは「読めない」ではなく「残額が足りない」で閉じる。
+実験のたびに Terraform で配分を上げる。クライアントから実 API を読む配線は issue #17。
 
 **読めない Spending Limit は「余裕がある」とみなさない。** 読めない場合も残額不足と同じく拒否する。
 サービス側の停止機構はこのリポジトリの外にある唯一の防御なので、その不在を黙って通さない。
