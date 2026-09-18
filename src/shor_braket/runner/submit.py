@@ -70,6 +70,8 @@ class SubmissionPlan:
     shots: int
     circuit: Circuit
     report: PreflightReport
+    layout: SubmissionProgram | None = None
+    """Physical qubits of each register, needed to read the device's result back."""
 
     @property
     def allowed(self) -> bool:
@@ -116,7 +118,35 @@ class SubmissionResult:
         }
 
 
-def build_submission_circuit(
+@dataclass(frozen=True)
+class SubmissionProgram:
+    """The verbatim circuit and the physical qubits each register ended up on.
+
+    The layout is not decoration. A device returns one bit per measured qubit in ascending
+    physical order, so without knowing which physical qubit carries which register bit there is
+    no way to turn a result into a count/work joint distribution. The router picks that mapping
+    from the calibration, which changes, so the mapping has to be recorded at submission time
+    rather than recomputed later from whatever snapshot happens to be on disk.
+    """
+
+    circuit: Circuit
+    count_physical: tuple[int, ...]
+    """Physical qubits of the count register, most significant first."""
+    work_physical: tuple[int, ...]
+    """Physical qubits of the work register, most significant first."""
+    measured: tuple[int, ...]
+    """Every physical qubit the device will report, in the ascending order it reports them."""
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the layout."""
+        return {
+            "count_physical": list(self.count_physical),
+            "work_physical": list(self.work_physical),
+            "measured": list(self.measured),
+        }
+
+
+def build_submission_program(
     *,
     device_key: str,
     oracle_mode: str,
@@ -124,8 +154,8 @@ def build_submission_circuit(
     base: int = 7,
     snapshot_dir: Path = DEFAULT_SNAPSHOT_DIR,
     max_permutations: int | None = None,
-) -> Circuit:
-    """Rebuild the verbatim program for one device and oracle.
+) -> SubmissionProgram:
+    """Rebuild the verbatim program for one device and oracle, with its register layout.
 
     The steps mirror :func:`~shor_braket.runner.n15.emulate_n15_configuration` exactly, because a
     submission that is routed or lowered differently from the emulation is a different program
@@ -140,7 +170,7 @@ def build_submission_circuit(
         max_permutations: Cap on the layout search, for fast tests.
 
     Returns:
-        The verbatim circuit, ready to hash.
+        The program and the physical qubits of each register.
 
     Raises:
         ValueError: If the device key or oracle mode is not an approved one.
@@ -162,7 +192,44 @@ def build_submission_circuit(
         logical.circuit, summary, logical_qubits, max_permutations=max_permutations
     )
     native = compile_to_native(routed.circuit, gate_family(summary.native_gate_set))
-    return verbatim(native.circuit)
+    return SubmissionProgram(
+        circuit=verbatim(native.circuit),
+        count_physical=tuple(routed.final_layout[q] for q in logical.count_qubits),
+        work_physical=tuple(routed.final_layout[q] for q in logical.work_qubits),
+        measured=tuple(sorted(routed.final_layout.values())),
+    )
+
+
+def build_submission_circuit(
+    *,
+    device_key: str,
+    oracle_mode: str,
+    count_qubit_count: int = 2,
+    base: int = 7,
+    snapshot_dir: Path = DEFAULT_SNAPSHOT_DIR,
+    max_permutations: int | None = None,
+) -> Circuit:
+    """Rebuild the verbatim program for one device and oracle.
+
+    Args:
+        device_key: Logical device name.
+        oracle_mode: Which oracle to build.
+        count_qubit_count: Size of the count register.
+        base: The base whose order is being found.
+        snapshot_dir: Where committed calibration snapshots live.
+        max_permutations: Cap on the layout search, for fast tests.
+
+    Returns:
+        The verbatim circuit, ready to hash.
+    """
+    return build_submission_program(
+        device_key=device_key,
+        oracle_mode=oracle_mode,
+        count_qubit_count=count_qubit_count,
+        base=base,
+        snapshot_dir=snapshot_dir,
+        max_permutations=max_permutations,
+    ).circuit
 
 
 def plan_submission(
@@ -199,7 +266,7 @@ def plan_submission(
     Returns:
         The plan, whose :attr:`SubmissionPlan.allowed` says whether every blocking check passed.
     """
-    circuit = build_submission_circuit(
+    program = build_submission_program(
         device_key=device_key,
         oracle_mode=oracle_mode,
         count_qubit_count=count_qubit_count,
@@ -207,6 +274,7 @@ def plan_submission(
         snapshot_dir=snapshot_dir,
         max_permutations=max_permutations,
     )
+    circuit = program.circuit
     report = preflight(
         circuit,
         device_key=device_key,
@@ -224,6 +292,7 @@ def plan_submission(
         shots=shots,
         circuit=circuit,
         report=report,
+        layout=program,
     )
 
 
@@ -287,6 +356,10 @@ def _submission_record(
             "capabilities_sha256": record.snapshot.get("capabilities_sha256"),
         }
         if record is not None
+        else None,
+        "register_layout": plan.layout.to_dict() if plan.layout is not None else None,
+        "problem": {"modulus": 15, "base": 7, "count_qubit_count": len(plan.layout.count_physical)}
+        if plan.layout is not None
         else None,
         "tags": plan.report.tags,
         "cost": plan.report.cost,

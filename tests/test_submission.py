@@ -30,7 +30,7 @@ from shor_braket.gate.preflight import Check, preflight
 from shor_braket.gate.record import issue_record, save_record
 from shor_braket.gate.spending import SpendingLimitStatus
 from shor_braket.quantum.native import verbatim
-from shor_braket.runner.submit import SubmissionPlan, submit
+from shor_braket.runner.submit import SubmissionPlan, SubmissionProgram, submit
 from shor_braket.runner.task_status import (
     TERMINAL_STATES,
     iter_submissions,
@@ -91,6 +91,12 @@ def _passing_plan(tmp_path: Path, garnet_snapshot, *, shots: int = 10) -> Submis
         shots=shots,
         circuit=program,
         report=report,
+        layout=SubmissionProgram(
+            circuit=program,
+            count_physical=(15, 10),
+            work_physical=(20, 18, 14, 19),
+            measured=(10, 14, 15, 18, 19, 20),
+        ),
     )
 
 
@@ -352,3 +358,48 @@ def test_a_dry_run_never_builds_a_session_or_a_bucket(monkeypatch, tmp_path):
     )
     assert result.exit_code == 1
     assert "offline checks failed" in result.output
+
+
+# --- the register layout ------------------------------------------------------------------
+
+
+def test_the_recorded_layout_is_the_one_the_emulation_used(snapshot_dir, garnet_snapshot):
+    """A result is a bit per physical qubit; without this mapping it cannot be read back."""
+    from shor_braket.devices import summarize_snapshot
+    from shor_braket.runner.n15 import emulate_n15_configuration
+    from shor_braket.runner.submit import build_submission_program
+
+    emulated = emulate_n15_configuration(
+        garnet_snapshot,
+        summarize_snapshot(garnet_snapshot),
+        oracle_mode="generic-constant",
+        shots=1,
+        max_permutations=1,
+    )
+    program = build_submission_program(
+        device_key="garnet",
+        oracle_mode="generic-constant",
+        snapshot_dir=snapshot_dir,
+        max_permutations=1,
+    )
+
+    # The emulation labels each physical qubit c0/c1 (count, value order) and w3..w0 (work).
+    roles = emulated["layout"]["roles"]
+    expected_count = [
+        qubit for qubit, role in sorted(roles.items(), key=lambda kv: kv[1]) if role.startswith("c")
+    ]
+    assert [str(q) for q in program.count_physical] == expected_count
+    assert sorted(program.measured) == sorted(int(q) for q in roles)
+    assert len(program.work_physical) == 4
+
+
+def test_the_submission_record_carries_the_layout(tmp_path, garnet_snapshot, created_tasks):
+    plan = _passing_plan(tmp_path, garnet_snapshot)
+    result = submit(
+        plan, session=object(), bucket="amazon-braket-test", run_dir=tmp_path, now=NOW
+    )
+    record = json.loads(result.record_path.read_text(encoding="utf-8"))
+    assert record["register_layout"]["count_physical"] == [15, 10]
+    assert record["register_layout"]["work_physical"] == [20, 18, 14, 19]
+    assert record["register_layout"]["measured"] == [10, 14, 15, 18, 19, 20]
+    assert record["problem"] == {"modulus": 15, "base": 7, "count_qubit_count": 2}
