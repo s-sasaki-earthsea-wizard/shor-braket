@@ -178,36 +178,40 @@ validated レコードを **コミット対象にする**のは監査性のた�
 
 ## 5. submit の動作
 
-`make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000` の実出力（2026-09-14）:
+`make preflight DEVICE=garnet ORACLE=generic-constant SHOTS=10` の実出力（2026-09-19、オフライン）:
 
 ```
 [gate] device                   IQM Garnet (garnet)
-[gate] circuit_hash             sha256:01ebd46b9ebab1ab...
+[gate] circuit_hash             sha256:369f7a966145d41769228a0f01f5c29b953a2c4be936684650b7580ee70f9bc1
 [gate] qpu eligible circuit     OK    verbatim program with no dense matrix gates
 [gate] snapshot device          OK    snapshot for garnet
-[gate] validated record         OK    garnet / generic-constant, issued 2026-09-14T12:12:08Z
+[gate] validated record         OK    garnet / generic-constant, issued 2026-09-18T17:02:58Z
 [gate] device match             OK    record and target are the same device
-[gate] calibration current      OK    calibration 2026-09-13T16:28:09Z still matches the emulation
-[gate] record fresh             OK    issued 2026-09-14T12:12:08Z, expires 2026-10-14T12:12:08Z
+[gate] calibration current      OK    calibration 2026-09-18T16:29:04Z still matches the emulation
+[gate] record fresh             OK    issued 2026-09-18T17:02:58Z, expires 2026-10-18T17:02:58Z
 [gate] sdk major match          OK    1.127.0
 [gate] hash form match          OK    canonical form v1
-[gate] emulation verdict        OK    signal fraction 0.541 >= 0.5
-[gate] shots in range           OK    2000 within [1, 20000]
-[gate] cost under ceiling       OK    3.20000 USD against a ceiling of 10 USD
+[gate] emulation verdict        OK    signal fraction 0.521 >= 0.5
+[gate] shots in range           OK    10 within [1, 20000]
+[gate] cost under ceiling       OK    0.31450 USD against a ceiling of 10 USD
 [gate] spending limit           FAIL  no spending limit could be read for this device ...
 [cost] arn                      arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet
-[cost] shots                    2000
-[cost] estimated                3.20000 USD
+[cost] shots                    10
+[cost] estimated                0.31450 USD
 [cost] per-task ceiling         10 USD
-[cost] spending limit           unavailable (issue #3)
+[cost] tags                     project=shor-braket oracle=generic-constant
+[cost] spending limit           not read (no credentials here)
 [gate] verdict                  REFUSED
 [gate]   blocked by             spending limit: ...
+
+dry run: every check that works without credentials passed.
+The spending limit was not read here and is still ahead of any real task.
+Run make submit-qpu to read it and create the paid task.
 ```
 
-**回路側の検査はすべて通る。** 2026-09-16 に Phase 3 の Terraform（`infra/terraform/spending_limits.tf`）が
-3 機の Limit を作り、readonly / execute ポリシーが `braket:SearchSpendingLimits` を許可した（issue #3）。
-**Limit は 3 機とも 0 USD** なので、ゲートは「読めない」ではなく「残額が足りない」で閉じる。
-実験のたびに Terraform で配分を上げる。クライアントから実 API を読む配線は issue #17。
+回路側の検査はすべて通る。オフラインでは Spending Limit を読めないので、レポート本体の判定は
+REFUSED のまま残り、そのうえでドライランは「資格情報なしで答えられる検査はすべて通った」と報告する
+（§5.1）。実 API を読むのは `make submit-qpu` の側。
 
 **読めない Spending Limit は「余裕がある」とみなさない。** 読めない場合も残額不足と同じく拒否する。
 サービス側の停止機構はこのリポジトリの外にある唯一の防御なので、その不在を黙って通さない。
@@ -215,9 +219,49 @@ validated レコードを **コミット対象にする**のは監査性のた�
 **確認プロンプトは必須。** `--yes` フラグでスキップできるが、その場合も
 `--max-cost` の指定を必須とし、推定コストが超えたら中断する（指定が無ければ終了コード 2）。
 
-実際のタスク作成（`AwsQuantumTask.create`）は**まだ実装しない**。クライアント側のゲートは
-完成したが、その背後に立つべき AWS 側のガードレールが issue #3 で未完のため、
-`runner/submit.py` の `submit()` は常に `NotImplementedError` を投げる。
+### 5.1 ドライランと本番を分ける（2026-09-19、issue #17）
+
+| コマンド | コンテナ | ネットワーク | 資格情報 | タスク作成 |
+|---|---|---|---|---|
+| `make preflight` | `local` | 無効 | 無し | しない |
+| `make submit-qpu` | `aws` | 有効 | 実行 / AQT ロール（MFA） | **する（課金）** |
+| `make task-status` | `aws` | 有効 | 読み取り専用（MFA 不要） | しない |
+
+`local` は `network_mode: none` のままにする。誤った import が課金に届かないことを構造で保証するためで、
+お金が動く経路は `aws` サービス 1 つだけに閉じている。`aws` はホストの `~/.aws` を **読み取り専用**で
+`/aws` にマウントし、`HOME` ではなく `AWS_CONFIG_FILE` で指す（ホスト uid で動くコンテナに `HOME` は無い）。
+読み取り専用なので botocore は assume したロールをキャッシュできず、**MFA プロンプトは実行ごとに 1 回**出る。
+これは欠点ではなく、課金の直前に人間が手で打つ最後の関門として受け入れている。
+
+**ドライランは Spending Limit を読めない。** 資格情報が無いのだから当然で、これを失敗として扱うと
+ドライランは常に失敗する。そこで `--no-execute` のときだけ、判定を
+「**資格情報なしで答えられる検査**（`SPENDING_LIMIT_CHECKS` 以外）がすべて通ったか」に読み替える。
+この読み替えは表示と終了コードにしか効かない。`submit()` 自体は `plan.allowed` が偽なら
+`PermissionError` を投げるので、呼び出し側が何を印字したかに関わらず経路は閉じている。
+
+### 5.2 投入時の二重確認
+
+`submit()` は計画を 2 回検査する。
+
+1. **preflight の判定が今も通っているか。** レポートを描画した呼び出し側を信用しない
+2. **回路を再ハッシュして、レポートが承認した program と同一か。** `SubmissionPlan` は可変オブジェクトで、
+   意味のある主張は「実際に送るバイト列」についてのものだけ
+
+`disable_qubit_rewiring` は `False` で送る。verbatim box が既に物理 qubit を固定しており、
+両方を指定するとサービスに拒否される。
+
+### 5.3 投入記録（`runs/raw/qpu-*/submission.json`）
+
+作成したタスクごとに「何を・どの根拠で・いくらで買ったか」を残す。validated レコードとは別物で、
+validated レコードが「この回路は検証を通った」の証明なのに対し、投入記録は「この課金はこの証明に基づく」の台帳。
+
+タスク ARN、デバイス、oracle、ショット数、回路ハッシュ、参照した validated レコード（発行時刻・校正ハッシュ）、
+タグ、コスト概算、**投入時点の Spending Limit**、呼び出し元の STS 識別子、結果の S3 位置、preflight レポート全文。
+
+`runs/raw` は gitignore 対象なので、追跡ファイルに書けないアカウント ID とプリンシパル ARN をここには残せる。
+
+`make task-status` はこの台帳を読み、各タスクの現在の状態を `GetQuantumTask`（無料）で引く。
+口座ではなくこのリポジトリが投げたタスクだけを見るので、他の経路で作られたタスクは出てこない。
 
 ---
 
@@ -379,6 +423,8 @@ validated レコードを発行した回路そのものを投げられない。A
 - [ ] validated レコードの有効期限 30 日は妥当か（実装は 30 日だが、実質の主判定は
       `capabilities_sha256` の一致になった。日数を 7 日に縮める提案は §4.3）
 - [ ] `--yes` を CI から使う運用を認めるか（現時点では想定しない）
+- [ ] Spending Limit の**期間外**に `CreateQuantumTask` を投げたときの実挙動（拒否か、Limit 未設定と同じ扱いか）。
+      API リファレンスは拒否と読めるが未測定。経路確認は必ず期間内に投げる
 - [x] ~~実機実行結果に対する「合格/不合格」判定を設けるか~~ → λ ≥ 0.5 で合格、λ > 3 × 標準誤差で「信号あり」を別に記録（2026-09-14、issue #7）
 - [ ] 月次累計の取得元（Cost Explorer API は 1 リクエスト $0.01 かかる。
       ローカルに実行履歴を持って自前集計するほうが安いかもしれない）
