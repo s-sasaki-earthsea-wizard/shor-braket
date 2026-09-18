@@ -100,7 +100,11 @@ program であることを確かめる。`disable_qubit_rewiring` は `False`（
 作成したタスクは `runs/raw/qpu-*/submission.json` に台帳として残る（gitignore 対象なのでアカウント ID を書ける）。
 **ドライランは Spending Limit を読めない**ので、`--no-execute` のときだけ判定を「資格情報なしで答えられる
 検査がすべて通ったか」に読み替える。これは表示と終了コードにしか効かず、`submit()` の `PermissionError` は無条件。
-`make report` は未実装ガードを維持する（issue #17 の後半、別 PR）。
+**`make report` も実装した**（`runner/report.py`、`visualization/qpu.py`）。結果 JSON を投入記録の
+`register_layout` で count + work の同時分布に直し、理想分布および**エミュレーションが予測した λ** と比較する。
+**λ の推定量は 2 つあり、合否に使うのはサポート質量由来のほう**（カウントに線形なのでショット数によらず不偏）。
+TVD 由来の λ は有限ショットで標本床のぶん沈むので、床と並べて表示するだけで判定には使わない
+（10 ショットの経路確認ではこの偏りが支配的になる）。`--result-file` で S3 を介さずオフライン解析できる。
 
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
@@ -293,6 +297,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | お金が動く経路 | `docker-compose.yml` の `aws` サービス 1 つだけ。`local` は `network_mode: none` を維持（2026-09-19） | `docs/03` §5.1 |
 | 投入時の資格情報 | ホストの `~/.aws` を読み取り専用マウント。MFA は実行ごとに 1 回（キャッシュしない）（2026-09-19） | `aws_session.py` |
 | 投入記録 | `runs/raw/qpu-*/submission.json`。validated レコードとは別の台帳（2026-09-19） | `runs/README.md` |
+| 実機の λ の推定量 | **サポート質量由来（不偏）で合否を判定**。TVD 由来は標本床と並べて表示のみ（2026-09-19） | `runner/report.py` |
+| レジスタの物理 qubit | 投入記録に残す。校正が変わるとルータが別の配置を選ぶため後から再計算できない（2026-09-19） | `runner/submit.py` |
 | Terraform の実行主体 | admin（MFA 必須の assume role）。plan は誰でも、apply / destroy は Syota さん本人 | `infra/terraform/README.md` |
 | Budget のフィルタ | コスト配分タグ `project=shor-braket`。サービス単位にはしない（S3 / CloudWatch も使う） | issue #3 |
 | 月次累計の取得元 | AWS Budgets の `CalculatedSpend`（無料、`budgets:ViewBudget`）。Cost Explorer は使わない | issue #7 |
@@ -317,4 +323,4 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
 | 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
-| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 2026-09-19 に投入経路を実装（`submit-qpu` / `task-status`）。実タスクは未投入。`report` は別 PR |
+| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 2026-09-19 に投入と解析を実装（`preflight` / `submit-qpu` / `task-status` / `report`）。**実タスクは未投入** |
