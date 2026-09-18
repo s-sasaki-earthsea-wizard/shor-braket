@@ -48,6 +48,7 @@ from shor_braket.runner.local import run_local
 from shor_braket.runner.n15 import run_n15_emulation
 from shor_braket.runner.n15_iterative import DEFAULT_SWEEP_SHOTS, run_iterative_emulation
 from shor_braket.runner.reference import run_reference_simulation
+from shor_braket.runner.report import run_report
 from shor_braket.runner.submit import (
     DEFAULT_RUN_DIR,
     build_submission_circuit,
@@ -639,4 +640,35 @@ def task_status(
         raise typer.Exit(code=2) from error
     except (ClientError, BotoCoreError) as error:
         typer.echo(f"error: could not read the task: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
+@app.command("report")
+def report(
+    task_arn: Annotated[
+        str | None,
+        typer.Option("--task-arn", help="One task to analyse. Default: every recorded task."),
+    ] = None,
+    result_file: Annotated[
+        Path | None,
+        typer.Option(
+            "--result-file",
+            dir_okay=False,
+            help="Read results.json from disk instead of S3 (offline, free).",
+        ),
+    ] = None,
+    run_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RUN_DIR,
+) -> None:
+    """Compare a finished task with the ideal distribution and with the emulator's prediction."""
+    try:
+        session = None if result_file is not None else readonly_session()
+        _echo_json(run_report(session, task_arn=task_arn, result_file=result_file, run_dir=run_dir))
+    except AwsConfigurationError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    except (ValueError, KeyError) as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    except (ClientError, BotoCoreError) as error:
+        typer.echo(f"error: could not read the result: {error}", err=True)
         raise typer.Exit(code=1) from error
