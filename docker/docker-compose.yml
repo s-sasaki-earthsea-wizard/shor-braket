@@ -27,3 +27,41 @@ services:
       PIP_NO_CACHE_DIR: "1"
       RUFF_CACHE_DIR: /tmp/ruff-cache
     command: ["shor-braket", "smoke"]
+
+  # The only service that can reach AWS. Everything that costs money runs here, and nothing
+  # else does: `local` keeps network_mode: none so a stray import can never spend anything.
+  #
+  # Credentials are the host's, mounted read-only at /aws and pointed at by the two AWS_*_FILE
+  # variables rather than by HOME, which is not meaningful for a container running as the host
+  # uid. Read-only means botocore cannot cache the assumed-role credentials, so the MFA prompt
+  # appears once per invocation. That is a fair price: a code typed by hand is the last human
+  # checkpoint before a charge, and submissions are rare and deliberate.
+  aws:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    user: "${LOCAL_UID:-1000}:${LOCAL_GID:-1000}"
+    init: true
+    working_dir: /workspace
+    volumes:
+      - ../src:/workspace/src
+      - ../runs:/workspace/runs
+      - ../devices:/workspace/devices
+      - ../pyproject.toml:/workspace/pyproject.toml:ro
+      - ${HOME}/.aws:/aws:ro
+    environment:
+      AWS_CONFIG_FILE: /aws/config
+      AWS_SHARED_CREDENTIALS_FILE: /aws/credentials
+      # There is no instance profile to fall back on, and asking for one costs a timeout.
+      AWS_EC2_METADATA_DISABLED: "true"
+      AWS_REGION: "${AWS_REGION:-}"
+      AWS_PROFILE_RO: "${AWS_PROFILE_RO:-}"
+      AWS_PROFILE_EXEC: "${AWS_PROFILE_EXEC:-}"
+      AWS_PROFILE_AQT: "${AWS_PROFILE_AQT:-}"
+      BRAKET_RESULTS_BUCKET: "${BRAKET_RESULTS_BUCKET:-}"
+      BRAKET_MAX_COST_USD: "${BRAKET_MAX_COST_USD:-}"
+      BRAKET_CAMPAIGN: "${BRAKET_CAMPAIGN:-}"
+      GIT_COMMIT: "${GIT_COMMIT:-}"
+      MPLCONFIGDIR: /tmp/matplotlib
+      PIP_NO_CACHE_DIR: "1"
+    command: ["shor-braket", "--help"]
