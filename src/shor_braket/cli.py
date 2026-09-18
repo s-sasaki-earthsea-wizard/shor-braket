@@ -10,9 +10,17 @@ from pathlib import Path
 from typing import Annotated, Any
 
 import typer
+from botocore.exceptions import BotoCoreError, ClientError
 from braket.circuits import Circuit
 from braket.circuits.serialization import IRType
 
+from shor_braket.aws_session import (
+    AwsConfigurationError,
+    caller_identity,
+    readonly_session,
+    results_bucket,
+    submission_session,
+)
 from shor_braket.cost import QPU_CANDIDATES, qpu_cost_estimates
 from shor_braket.devices import (
     DEFAULT_SNAPSHOT_DIR,
@@ -22,11 +30,17 @@ from shor_braket.devices import (
     summarize_snapshot,
 )
 from shor_braket.gate.circuit_hash import CANONICAL_FORM_VERSION, circuit_hash
+from shor_braket.gate.preflight import SPENDING_LIMIT_CHECKS
 from shor_braket.gate.record import (
     DEFAULT_RECORD_DIR,
     DEFAULT_VALIDITY_DAYS,
     iter_records,
     record_path,
+)
+from shor_braket.gate.spending import (
+    SpendingLimitLookup,
+    aws_spending_limit_lookup,
+    no_spending_limit_lookup,
 )
 from shor_braket.quantum.n15 import ORACLE_MODES
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
@@ -35,10 +49,12 @@ from shor_braket.runner.n15 import run_n15_emulation
 from shor_braket.runner.n15_iterative import DEFAULT_SWEEP_SHOTS, run_iterative_emulation
 from shor_braket.runner.reference import run_reference_simulation
 from shor_braket.runner.submit import (
-    SUBMISSION_BLOCKED_REASON,
+    DEFAULT_RUN_DIR,
     build_submission_circuit,
     plan_submission,
+    submit,
 )
+from shor_braket.runner.task_status import task_status_report
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -439,22 +455,55 @@ def circuit(
 @app.command("records")
 def records(
     record_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RECORD_DIR,
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
 ) -> None:
-    """List the validated records on disk."""
-    rows = [
+    """List the validated records on disk and say which ones the preflight would still accept."""
+    # The expiry date is the weaker of the two freshness tests. What actually retires a record
+    # is the device being recalibrated, which can happen the day after it was issued, so a
+    # listing that only showed `expired` would show stale records as healthy.
+    snapshots: dict[str, str | None] = {}
+
+    def calibration_hash(device_key: str) -> str | None:
+        """Return the capability hash of the snapshot on disk for one device."""
+        if device_key not in snapshots:
+            try:
+                snapshots[device_key] = load_snapshot(device_key, snapshot_dir).capabilities_sha256
+            except (FileNotFoundError, ValueError):
+                snapshots[device_key] = None
+        return snapshots[device_key]
+
+    rows = []
+    for record in iter_records(record_dir):
+        current = calibration_hash(record.device_key)
+        recorded = record.snapshot.get("capabilities_sha256")
+        calibration_current = None if current is None else current == recorded
+        expired = record.is_expired()
+        rows.append(
+            {
+                "circuit_hash": record.circuit_hash,
+                "device": record.device_key,
+                "oracle_mode": record.oracle_mode,
+                "issued_at": record.issued_at,
+                "expires_at": record.expires_at,
+                "expired": expired,
+                "signal_fraction": record.emulation.get("verdict", {}).get(
+                    "signal_fraction_exact"
+                ),
+                "calibration_updated_at": record.snapshot.get("calibration_updated_at"),
+                "calibration_current": calibration_current,
+                "usable": calibration_current is True and not expired,
+            }
+        )
+    usable = sum(1 for row in rows if row["usable"])
+    _echo_json(
         {
-            "circuit_hash": record.circuit_hash,
-            "device": record.device_key,
-            "oracle_mode": record.oracle_mode,
-            "issued_at": record.issued_at,
-            "expires_at": record.expires_at,
-            "expired": record.is_expired(),
-            "signal_fraction": record.emulation.get("verdict", {}).get("signal_fraction_exact"),
-            "calibration_updated_at": record.snapshot.get("calibration_updated_at"),
+            "record_dir": str(record_dir),
+            "snapshot_dir": str(snapshot_dir),
+            "count": len(rows),
+            "usable": usable,
+            "records": rows,
         }
-        for record in iter_records(record_dir)
-    ]
-    _echo_json({"record_dir": str(record_dir), "count": len(rows), "records": rows})
+    )
 
 
 @app.command("submit-qpu")
@@ -481,11 +530,40 @@ def submit_qpu(
     yes: Annotated[
         bool, typer.Option("--yes", help="Skip the prompt. Requires --max-cost.")
     ] = False,
+    execute: Annotated[
+        bool,
+        typer.Option(
+            "--execute/--no-execute",
+            help="Create a real, paid quantum task. Without it this is a free dry run.",
+        ),
+    ] = False,
+    run_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RUN_DIR,
 ) -> None:
-    """Run the full submission preflight for a real QPU task (no task is created)."""
+    """Run the submission gate, and with --execute create the paid task behind it."""
     if yes and max_cost is None:
         typer.echo("error: --yes requires an explicit --max-cost", err=True)
         raise typer.Exit(code=2)
+
+    # Without --execute nothing here may reach AWS, so the spending limit stays unreadable and
+    # the gate closes on it. That is the dry run: it proves everything except the money.
+    spending_lookup: SpendingLimitLookup = no_spending_limit_lookup
+    session = None
+    caller: dict[str, str] = {}
+    bucket = ""
+    if execute:
+        try:
+            session = submission_session(device)
+            caller = caller_identity(session)
+            bucket = results_bucket()
+        except AwsConfigurationError as error:
+            typer.echo(f"error: {error}", err=True)
+            raise typer.Exit(code=2) from error
+        except (ClientError, BotoCoreError) as error:
+            typer.echo(f"error: could not authenticate the submission profile: {error}", err=True)
+            raise typer.Exit(code=2) from error
+        typer.echo(f"[gate] submitting as            {caller['arn']}")
+        spending_lookup = aws_spending_limit_lookup(session.client("braket"))
+
     try:
         plan = plan_submission(
             device_key=device,
@@ -495,18 +573,70 @@ def submit_qpu(
             snapshot_dir=snapshot_dir,
             record_dir=record_dir,
             max_cost_usd=Decimal(max_cost) if max_cost is not None else None,
+            spending_lookup=spending_lookup,
             campaign=campaign,
         )
     except (ValueError, ArithmeticError, FileNotFoundError) as error:
         typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error
+    except (ClientError, BotoCoreError) as error:
+        typer.echo(f"error: could not read the spending limit: {error}", err=True)
+        raise typer.Exit(code=1) from error
 
     typer.echo(plan.report.render())
+    if not execute:
+        # A dry run has no credentials, so the spending-limit checks cannot pass and would make
+        # every dry run a failure. Report on the checks it could actually answer, and say plainly
+        # that the money checks are still ahead. The real path below has no such exemption.
+        offline_blockers = [
+            check for check in plan.report.blockers if check.name not in SPENDING_LIMIT_CHECKS
+        ]
+        if offline_blockers:
+            names = ", ".join(check.name for check in offline_blockers)
+            typer.echo(f"\nrefused: offline checks failed ({names}).", err=True)
+            raise typer.Exit(code=1)
+        typer.echo("\ndry run: every check that works without credentials passed.")
+        typer.echo("The spending limit was not read here and is still ahead of any real task.")
+        typer.echo("Run make submit-qpu to read it and create the paid task.")
+        return
     if not plan.allowed:
         typer.echo("\nrefused: the preflight did not pass; nothing was submitted.", err=True)
         raise typer.Exit(code=1)
-    if not yes and not typer.confirm("\nProceed?", default=False):
+    if not yes and not typer.confirm(
+        f"\nCreate a paid task on {plan.report.device_name} "
+        f"for about {plan.report.cost['estimated_cost_usd']} USD?",
+        default=False,
+    ):
         typer.echo("cancelled.")
         raise typer.Exit(code=1)
-    typer.echo(f"\nnot implemented: {SUBMISSION_BLOCKED_REASON}", err=True)
-    raise typer.Exit(code=3)
+
+    assert session is not None  # noqa: S101 - narrowed by the execute branch above
+    try:
+        result = submit(plan, session=session, bucket=bucket, run_dir=run_dir, caller=caller)
+    except (PermissionError, ValueError) as error:
+        typer.echo(f"refused: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    except (ClientError, BotoCoreError) as error:
+        typer.echo(f"error: the service refused the task: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    _echo_json(result.to_dict())
+
+
+@app.command("task-status")
+def task_status(
+    task_arn: Annotated[
+        str | None,
+        typer.Option("--task-arn", help="One task to ask about. Default: every recorded task."),
+    ] = None,
+    run_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_RUN_DIR,
+) -> None:
+    """Report the state of the quantum tasks this repository created (read-only, free)."""
+    try:
+        session = readonly_session()
+        _echo_json(task_status_report(session, task_arn=task_arn, run_dir=run_dir))
+    except AwsConfigurationError as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(code=2) from error
+    except (ClientError, BotoCoreError) as error:
+        typer.echo(f"error: could not read the task: {error}", err=True)
+        raise typer.Exit(code=1) from error

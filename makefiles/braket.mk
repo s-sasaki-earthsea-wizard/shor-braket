@@ -69,15 +69,26 @@ device-snapshot:  ## 3 機の校正データを GetDevice で取得し devices/s
 device-info:  ## 保存済みスナップショットからデバイスの校正・価格・実行窓を表示する (例: make device-info DEVICE=garnet)
 	$(LOCAL_RUN) shor-braket snapshot-show --device "$(DEVICE)"
 
-.PHONY: submit-qpu
-submit-qpu:  ## 実機 QPU への投入を試みる (⚠️ 課金対象・要 validated レコード。現状は preflight まで。DEVICE / ORACLE / SHOTS)
-	$(call require_env_file,make submit-qpu)
+.PHONY: preflight
+preflight:  ## 投入ゲートを最後まで回す (無料・オフライン・タスクは作らない。DEVICE / ORACLE / SHOTS)
+	$(call require_env_file,make preflight)
 	$(LOCAL_RUN) shor-braket submit-qpu --device "$(DEVICE)" --oracle "$(ORACLE)" \
-		--shots "$(SHOTS)"
+		--shots "$(SHOTS)" --no-execute
+
+.PHONY: submit-qpu
+submit-qpu:  ## ⚠️ 課金対象: 実機 QPU に量子タスクを投入する (要 validated レコード + MFA。DEVICE / ORACLE / SHOTS)
+	$(call require_env_file,make submit-qpu)
+	$(require_exec_profile)
+	$(require_home)
+	$(AWS_RUN) shor-braket submit-qpu --device "$(DEVICE)" --oracle "$(ORACLE)" \
+		--shots "$(SHOTS)" --execute
 
 .PHONY: task-status
-task-status:  ## 投入済みタスクの状態を確認する
-	$(call notimpl,make task-status,docs/03-execution-gate.md)
+task-status:  ## 投入済みタスクの状態を確認する (読み取りのみ・課金なし・MFA 不要。TASK_ARN で 1 件指定)
+	$(call require_env_file,make task-status)
+	$(require_ro_profile)
+	$(require_home)
+	$(AWS_RUN) shor-braket task-status $(if $(TASK_ARN),--task-arn "$(TASK_ARN)",)
 
 .PHONY: report
 report:  ## 実行結果を理想分布と比較してレポートを生成する

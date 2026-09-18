@@ -346,7 +346,7 @@ def test_an_unreadable_spending_limit_blocks(tmp_path, garnet_snapshot):
     save_record(_record_for(program, garnet_snapshot), tmp_path)
     report = _preflight(program, garnet_snapshot, tmp_path, spending_lookup=lambda arn: None)
     assert not report.passed
-    assert "not headroom" in _failed(report, "spending limit").detail
+    assert "never treated as headroom" in _failed(report, "spending limit").detail
 
 
 def test_a_spending_limit_without_room_blocks(tmp_path, garnet_snapshot):
@@ -443,7 +443,8 @@ def test_submission_refuses_without_a_record(tmp_path, snapshot_dir):
     assert not plan.allowed
 
 
-def test_submit_always_refuses_to_create_a_task(tmp_path, snapshot_dir):
+def test_submit_refuses_a_plan_whose_preflight_failed(tmp_path, snapshot_dir):
+    """The blocking check is in submit itself, not only in the caller that printed the report."""
     plan = plan_submission(
         device_key="garnet",
         oracle_mode="generic-constant",
@@ -453,8 +454,9 @@ def test_submit_always_refuses_to_create_a_task(tmp_path, snapshot_dir):
         max_permutations=1,
         now=NOW,
     )
-    with pytest.raises(NotImplementedError, match="issue #3"):
-        submit(plan)
+    assert not plan.allowed
+    with pytest.raises(PermissionError, match="no task was created"):
+        submit(plan, session=object(), bucket="amazon-braket-test")
 
 
 def test_submission_rejects_an_unapproved_device(tmp_path, snapshot_dir):
