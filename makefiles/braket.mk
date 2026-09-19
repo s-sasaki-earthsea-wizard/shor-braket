@@ -91,5 +91,13 @@ task-status:  ## 投入済みタスクの状態を確認する (読み取りの�
 	$(AWS_RUN) shor-braket task-status $(if $(TASK_ARN),--task-arn "$(TASK_ARN)",)
 
 .PHONY: report
-report:  ## 実行結果を理想分布と比較してレポートを生成する
-	$(call notimpl,make report,docs/02-architecture.md)
+report:  ## 実行結果を理想分布と比較してレポートを生成する (読み取りのみ・課金なし。TASK_ARN / RESULT_FILE)
+	$(call require_env_file,make report)
+ifneq (,$(RESULT_FILE))
+	$(LOCAL_RUN) shor-braket report --result-file "$(RESULT_FILE)" \
+		$(if $(TASK_ARN),--task-arn "$(TASK_ARN)",)
+else
+	$(require_ro_profile)
+	$(require_home)
+	$(AWS_RUN) shor-braket report $(if $(TASK_ARN),--task-arn "$(TASK_ARN)",)
+endif

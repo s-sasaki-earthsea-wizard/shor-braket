@@ -17,7 +17,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
 | **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。2026-09-18 に stage 2 を apply し、コスト配分タグ `project` を有効化、Garnet の Spending Limit を 5 USD に上げた（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4) は stage 3 のみ残る） |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
-| Phase 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 投入経路を実装済み（`submit-qpu` / `task-status`）。実タスクは未投入。結果レポートは未実装 |
+| Phase 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 投入と解析の経路を実装済み（`preflight` / `submit-qpu` / `task-status` / `report`）。**実タスクは未投入** |
 
 **2026-09-16: AWS 側のインフラが揃った。** IAM に加えて結果バケット、月次 Budget と SNS 通知、
 3 機の Braket Spending Limit を Terraform で作成した（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)）。
@@ -351,6 +351,10 @@ make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=10
 
 # 6. 投入済みタスクの状態を見る（読み取りのみ・課金なし・MFA 不要）
 make task-status
+
+# 7. 結果を理想分布およびエミュレーションの予測と比較する（読み取りのみ・課金なし）
+make report
+make report RESULT_FILE=runs/raw/qpu-.../results.json   # 保存済みの結果でオフライン解析
 ```
 
 `make preflight` は `local` コンテナ（ネットワーク無効）で走るので Spending Limit を読めない。
@@ -360,6 +364,11 @@ make task-status
 `make submit-qpu` は `aws` コンテナで走る。デバイスに応じて実行ロール（IQM）か AQT ロール（IBEX）を
 assume し、Spending Limit を実 API で読み、確認プロンプトを経てから `CreateQuantumTask` を呼ぶ。
 作成したタスクは `runs/raw/qpu-*/submission.json` に「何を・どの根拠で・いくらで買ったか」を残す。
+
+`make report` は結果を count + work の同時分布に直し、**エミュレーションが予測した λ と実機の λ を並べる**。
+λ の推定量は 2 つあり、**合否に使うのはサポート質量由来のほう**（カウントに対して線形なのでショット数によらず
+不偏）。TVD 由来の λ は有限ショットで標本床のぶん沈むので、床と並べて表示するだけで判定には使わない。
+位数復元率は一様乱数の基準値（t = 2 で約 0.75）と並べて最後に置く。単体では何の証拠にもならないため。
 
 ---
 
