@@ -44,8 +44,19 @@ resource "aws_sns_topic_subscription" "budget_email" {
   protocol  = "email"
   endpoint  = var.budget_notification_email
 
-  # SNS mails a confirmation link. Until it is clicked the subscription is pending and no
+  # SNS mails a confirmation link. Until it is confirmed the subscription is pending and no
   # alert is delivered. Terraform cannot confirm it (issue #4).
+  #
+  # Do NOT confirm it by clicking the link. Mail security scanners open links in incoming
+  # mail, and the unauthenticated unsubscribe link then deletes the subscription; SNS
+  # answers with a "deactivated" mail carrying a fresh resubscribe link, and the loop runs
+  # by itself (measured 2026-09-17). Confirm with the API instead, which makes unsubscribing
+  # require AWS credentials:
+  #   aws sns confirm-subscription --topic-arn <topic> --token <Token from the mail link> \
+  #     --authenticate-on-unsubscribe true
+  # There is no Terraform argument for this; repeat it whenever this resource is recreated.
+  # See ../terraform/README.md and the AWS Knowledge Center article
+  # "prevent-unsubscribe-all-sns-topic".
 }
 
 resource "aws_budgets_budget" "monthly" {
