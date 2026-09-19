@@ -51,7 +51,10 @@ strict = true
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["braket.*", "networkx.*"]
+# boto3 and botocore ship no py.typed marker. The typed alternative, boto3-stubs, is a large
+# generated dependency and this project touches four AWS calls, so the narrow surface is
+# described by the Protocol in gate/spending.py instead.
+module = ["braket.*", "networkx.*", "boto3.*", "botocore.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

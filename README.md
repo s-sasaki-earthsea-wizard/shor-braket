@@ -15,13 +15,14 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | Phase 0 | プロジェクト設計・ドキュメント | — | ✅ 完了 |
 | **Phase 1** | **Shor アルゴリズム実装（行列参照回路 + 位数・因数復元）** | **高** | ✅ N=15 を実装 |
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
-| **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。残るはコスト配分タグの有効化（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4)、約 24 時間後） |
+| **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。2026-09-18 に stage 2 を apply し、コスト配分タグ `project` を有効化、Garnet の Spending Limit を 5 USD に上げた（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4) は stage 3 のみ残る） |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
-| Phase 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ 未着手 |
+| Phase 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 投入経路を実装済み（`submit-qpu` / `task-status`）。実タスクは未投入。結果レポートは未実装 |
 
 **2026-09-16: AWS 側のインフラが揃った。** IAM に加えて結果バケット、月次 Budget と SNS 通知、
 3 機の Braket Spending Limit を Terraform で作成した（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)）。
-Spending Limit は **3 機とも 0 USD** で、実験のたびに Terraform で配分を上げる。
+Spending Limit は実験のたびに Terraform で配分を上げる。
+**2026-09-18 時点で Garnet のみ 5 USD**（期間 2026-09-19 〜 09-28）、Emerald と IBEX は 0 USD。
 ローカルシミュレータは無料でAWS認証も不要なので、`make setup`だけで開発を始められる。
 
 現時点では Docker 開発環境に加え、N=15, a=7 の行列参照回路、解析・サンプリング実行、
@@ -41,8 +42,10 @@ AQT は以前リクエストタグ `campaign=device-comparison` で IAM の Deny
 SDK バージョン・エミュレーションの合否・ショット数・費用・Spending Limit の残額を検査する。
 回路ハッシュは OpenQASM テキストではなく正規化した IR に対して取るので、空白や SDK の出力形式では動かず、
 配置や角度が変われば動く。密行列の参照回路は `Unitary` と verbatim box の不在で明示的に拒否される。
-**回路側の検査はすべて通る。** Spending Limit は [#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で
-作られたが 3 機とも 0 USD なので、残額不足で拒否される。実タスクの作成はまだ行わない。
+**2026-09-19: 投入そのものを実装した**（[#17](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/17)）。
+`make submit-qpu` がネットワーク付きの `aws` コンテナで実行ロールを assume し、Spending Limit を実 API で
+読んだうえで `CreateQuantumTask` を呼ぶ。`submit()` は preflight が通った計画しか受け取らず、送信直前に
+回路を再ハッシュしてレポートが承認した program であることを確かめる。無料のドライランは `make preflight`。
 
 **2026-09-14: LocalEmulator 互換性スパイク完了。** IQM Garnet / Emerald、AQT IBEX Q1 の校正データを
 `devices/snapshots/` にコミットし、`make emulate-all` が Docker 内（ネットワーク無効）で verbatim 検証と
@@ -340,15 +343,23 @@ make circuit DEVICE=garnet ORACLE=generic-constant
 make validate-n15 N15_DEVICE=garnet N15_ORACLE=generic-constant
 make validated     # 発行済みレコードの一覧
 
-# 4. 実機 QPU への投入ゲートを回す（validated レコードが必須。コスト確認プロンプトあり）
-make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=2000
+# 4. 投入ゲートをオフラインで最後まで回す（無料・AWS 不要・タスクは作らない）
+make preflight DEVICE=garnet ORACLE=generic-constant SHOTS=10
 
+# 5. ⚠️ 課金対象: 実機 QPU にタスクを投入する（MFA が要る。確認プロンプトあり）
+make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=10
+
+# 6. 投入済みタスクの状態を見る（読み取りのみ・課金なし・MFA 不要）
+make task-status
 ```
 
-`make submit-qpu` は回路側の検査をすべて通る。Spending Limit は
-[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3) で作られたが、3 機とも **0 USD** なので
-残額不足で拒否される。実験のたびに Terraform で配分を上げる。実タスクの作成は
-[#17](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/17) でまだ実装していない。
+`make preflight` は `local` コンテナ（ネットワーク無効）で走るので Spending Limit を読めない。
+読めない Limit を「余裕あり」とはみなさないため、お金の検査だけは常に未達のまま残る。
+ドライランはそれを承知のうえで、**資格情報なしで答えられる検査がすべて通ったか**を判定する。
+
+`make submit-qpu` は `aws` コンテナで走る。デバイスに応じて実行ロール（IQM）か AQT ロール（IBEX）を
+assume し、Spending Limit を実 API で読み、確認プロンプトを経てから `CreateQuantumTask` を呼ぶ。
+作成したタスクは `runs/raw/qpu-*/submission.json` に「何を・どの根拠で・いくらで買ったか」を残す。
 
 ---
 

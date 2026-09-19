@@ -49,6 +49,13 @@ DENSE_MATRIX_GATES = frozenset({"unitary"})
 VERBATIM_START = "startverbatimbox"
 VERBATIM_END = "endverbatimbox"
 
+# The checks that need credentials, and so are the ones an offline dry run can never satisfy.
+# They stay blocking everywhere; this set only lets a caller say which failures were expected
+# because it deliberately ran without AWS. Nothing may use it to skip a check before a task.
+SPENDING_LIMIT_CHECKS = frozenset(
+    {"spending limit", "spending limit active", "spending limit room"}
+)
+
 
 @dataclass(frozen=True)
 class Check:
@@ -132,7 +139,7 @@ class PreflightReport:
             rendered_tags = " ".join(f"{key}={value}" for key, value in self.tags.items())
             lines.append(f"[cost] tags                     {rendered_tags}")
         if self.spending_limit is None:
-            lines.append("[cost] spending limit           unavailable (issue #3)")
+            lines.append("[cost] spending limit           not read (no credentials here)")
         else:
             limit = self.spending_limit
             lines.append(f"[cost] spending limit           {limit.get('limit_usd')} USD")
@@ -458,9 +465,9 @@ def preflight(
                 name="spending limit",
                 passed=False,
                 detail=(
-                    "no spending limit could be read for this device. An unreadable limit is not "
-                    "headroom; create it with Terraform (issue #3) and grant "
-                    "braket:SearchSpendingLimits"
+                    "no spending limit could be read for this device. An unreadable limit is "
+                    "never treated as headroom. Offline runs always land here; with credentials "
+                    "this means the limit is missing or braket:SearchSpendingLimits is denied"
                 ),
             )
         )

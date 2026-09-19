@@ -1,6 +1,6 @@
 {
   "arn": "arn:aws:braket:eu-north-1::device/qpu/aqt/Ibex-Q1",
-  "calibration_updated_at": "2026-09-08T17:27:58+00:00",
+  "calibration_updated_at": "2026-09-15T15:05:16+00:00",
   "capabilities": {
     "action": {
       "braket.ir.openqasm.program": {
@@ -210,8 +210,8 @@
       },
       "properties": {
         "mean_two_qubit_gate_fidelity": {
-          "uncertainty": 0.36,
-          "value": 98.04
+          "uncertainty": 0.37,
+          "value": 98.16
         },
         "model_config": {
           "json_schema_extra": {
@@ -222,52 +222,52 @@
         "single_qubit_gate_duration_micros": 45.0,
         "single_qubit_gate_fidelity": {
           "0": {
-            "uncertainty": 0.0051,
-            "value": 99.9651
+            "uncertainty": 0.0037,
+            "value": 99.9681
           },
           "1": {
+            "uncertainty": 0.0033,
+            "value": 99.9674
+          },
+          "10": {
+            "uncertainty": 0.0058,
+            "value": 99.9555
+          },
+          "11": {
             "uncertainty": 0.0028,
             "value": 99.9684
           },
-          "10": {
-            "uncertainty": 0.0026,
-            "value": 99.973
-          },
-          "11": {
-            "uncertainty": 0.0035,
-            "value": 99.9646
-          },
           "2": {
-            "uncertainty": 0.0031,
-            "value": 99.9734
+            "uncertainty": 0.0035,
+            "value": 99.962
           },
           "3": {
-            "uncertainty": 0.0041,
-            "value": 99.9634
+            "uncertainty": 0.0034,
+            "value": 99.9645
           },
           "4": {
-            "uncertainty": 0.0035,
-            "value": 99.9678
+            "uncertainty": 0.0038,
+            "value": 99.9638
           },
           "5": {
-            "uncertainty": 0.0024,
-            "value": 99.973
+            "uncertainty": 0.0038,
+            "value": 99.9661
           },
           "6": {
-            "uncertainty": 0.0044,
-            "value": 99.966
+            "uncertainty": 0.0032,
+            "value": 99.9634
           },
           "7": {
-            "uncertainty": 0.0039,
-            "value": 99.9658
+            "uncertainty": 0.0034,
+            "value": 99.9703
           },
           "8": {
-            "uncertainty": 0.0023,
-            "value": 99.9735
+            "uncertainty": 0.0021,
+            "value": 99.971
           },
           "9": {
-            "uncertainty": 0.0041,
-            "value": 99.9661
+            "uncertainty": 0.0048,
+            "value": 99.9582
           }
         },
         "spam_fidelity_lower_bound": 99.78,
@@ -280,7 +280,7 @@
           "value": 0.1632
         },
         "two_qubit_gate_duration_micros": 335.0,
-        "updated_at": "2026-09-08T17:27:58+00:00"
+        "updated_at": "2026-09-15T15:05:16+00:00"
       }
     },
     "service": {
@@ -324,7 +324,7 @@
         1,
         2000
       ],
-      "updatedAt": "2026-09-08T17:27:58+00:00"
+      "updatedAt": "2026-09-15T15:05:16+00:00"
     },
     "standardized": {
       "T1": {
@@ -345,16 +345,40 @@
         "0": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.9996510000000001,
+              "fidelity": 0.999681,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 5.1000000000000006e-05,
+              "standardError": 3.7000000000000005e-05,
               "unit": "fraction"
             }
           ]
         },
         "1": {
+          "oneQubitFidelity": [
+            {
+              "fidelity": 0.999674,
+              "fidelityType": {
+                "name": "RANDOMIZED_BENCHMARKING"
+              },
+              "standardError": 3.3e-05,
+              "unit": "fraction"
+            }
+          ]
+        },
+        "10": {
+          "oneQubitFidelity": [
+            {
+              "fidelity": 0.999555,
+              "fidelityType": {
+                "name": "RANDOMIZED_BENCHMARKING"
+              },
+              "standardError": 5.7999999999999994e-05,
+              "unit": "fraction"
+            }
+          ]
+        },
+        "11": {
           "oneQubitFidelity": [
             {
               "fidelity": 0.999684,
@@ -366,38 +390,14 @@
             }
           ]
         },
-        "10": {
+        "2": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.99973,
-              "fidelityType": {
-                "name": "RANDOMIZED_BENCHMARKING"
-              },
-              "standardError": 2.6e-05,
-              "unit": "fraction"
-            }
-          ]
-        },
-        "11": {
-          "oneQubitFidelity": [
-            {
-              "fidelity": 0.999646,
+              "fidelity": 0.9996200000000001,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
               "standardError": 3.5000000000000004e-05,
-              "unit": "fraction"
-            }
-          ]
-        },
-        "2": {
-          "oneQubitFidelity": [
-            {
-              "fidelity": 0.999734,
-              "fidelityType": {
-                "name": "RANDOMIZED_BENCHMARKING"
-              },
-              "standardError": 3.1e-05,
               "unit": "fraction"
             }
           ]
@@ -405,11 +405,11 @@
         "3": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.9996339999999999,
+              "fidelity": 0.999645,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 4.1e-05,
+              "standardError": 3.4e-05,
               "unit": "fraction"
             }
           ]
@@ -417,11 +417,11 @@
         "4": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.999678,
+              "fidelity": 0.999638,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 3.5000000000000004e-05,
+              "standardError": 3.8e-05,
               "unit": "fraction"
             }
           ]
@@ -429,11 +429,11 @@
         "5": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.99973,
+              "fidelity": 0.999661,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 2.3999999999999997e-05,
+              "standardError": 3.8e-05,
               "unit": "fraction"
             }
           ]
@@ -441,11 +441,11 @@
         "6": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.99966,
+              "fidelity": 0.9996339999999999,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 4.4000000000000006e-05,
+              "standardError": 3.2e-05,
               "unit": "fraction"
             }
           ]
@@ -453,11 +453,11 @@
         "7": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.999658,
+              "fidelity": 0.9997029999999999,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 3.9e-05,
+              "standardError": 3.4e-05,
               "unit": "fraction"
             }
           ]
@@ -465,11 +465,11 @@
         "8": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.999735,
+              "fidelity": 0.99971,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 2.3e-05,
+              "standardError": 2.1e-05,
               "unit": "fraction"
             }
           ]
@@ -477,11 +477,11 @@
         "9": {
           "oneQubitFidelity": [
             {
-              "fidelity": 0.999661,
+              "fidelity": 0.9995820000000001,
               "fidelityType": {
                 "name": "RANDOMIZED_BENCHMARKING"
               },
-              "standardError": 4.1e-05,
+              "standardError": 4.7999999999999994e-05,
               "unit": "fraction"
             }
           ]
@@ -499,11 +499,11 @@
       ],
       "singleQubitFidelity": [
         {
-          "fidelity": 0.9996834166666667,
+          "fidelity": 0.9996489166666667,
           "fidelityType": {
             "name": "RANDOMIZED_BENCHMARKING"
           },
-          "median": 0.9996695,
+          "median": 0.999653,
           "unit": "fraction"
         }
       ],
@@ -517,20 +517,20 @@
       },
       "twoQubitGateFidelity": [
         {
-          "fidelity": 0.9804,
+          "fidelity": 0.9815999999999999,
           "fidelityType": {
             "name": "RANDOMIZED_BENCHMARKING"
           },
-          "standardError": 0.0036,
+          "standardError": 0.0037,
           "unit": "fraction"
         }
       ],
-      "updatedAt": "2026-09-08T17:27:58+00:00"
+      "updatedAt": "2026-09-15T15:05:16+00:00"
     }
   },
-  "capabilities_sha256": "sha256:8bf1e0c77354f0f8e79aa006861d5f53369a4cf6669a185bbec0b6f0dd3e1095",
+  "capabilities_sha256": "sha256:48ec887c9c01a560105a6125fa5d53670cbf04f22f3c569da7e464cdc1c2e947",
   "device_type": "QPU",
-  "fetched_at": "2026-09-13T23:33:33.381165+00:00",
+  "fetched_at": "2026-09-18T17:01:38.344868+00:00",
   "key": "ibex",
   "name": "IBEX Q1",
   "provider": "AQT",

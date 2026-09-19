@@ -20,3 +20,11 @@
 3 機 × 2 oracle で走らせた `result.json`（配置、ゲート数、厳密なノイズ付き分布と標本、信号残存率）、
 `circuits/*.qasm`（verbatim 回路）、`figures/`、`report.md` を書く。`execution.class = local-emulator-n15`、
 `qpu_gate.qpu_eligible = false`。
+
+`make submit-qpu` は投入したタスクごとに `raw/qpu-<device>-<oracle>-<timestamp>-<hash>/submission.json` を
+書く。validated レコードが「この回路は検証を通った」の証明なのに対し、これは「この課金はその証明に基づく」の
+台帳で、タスク ARN、回路ハッシュ、参照した validated レコード、タグ、コスト概算、**投入時点の Spending Limit**、
+呼び出し元の STS 識別子、結果の S3 位置、preflight レポート全文を含む。`raw/` は gitignore 対象なので、
+追跡ファイルには書けないアカウント ID とプリンシパル ARN をここには残せる。
+
+`make task-status` はこの台帳を読み、各タスクの現在の状態を `GetQuantumTask`（無料・読み取りのみ）で引く。

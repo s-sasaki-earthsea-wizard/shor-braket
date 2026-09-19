@@ -87,8 +87,20 @@ docs/03 §3.2 の初稿を訂正した）。レコードの失効判定で実質
 `src/`、`tests/`、`runs/` と必要な設定だけをコンテナへ mount する。
 `src/shor_braket/runner/local.py` はローカル実行のみを担い、validated レコードは発行しない。
 `make sim` / `sim-all` は N=15 / N=6 の行列参照回路を実行して教材を生成する。
-`make validate-n15` がレコードを発行し、`make submit-qpu` が投入ゲートを回す（タスクは作らない）。
-`make task-status` / `report` は未実装ガードを維持する（issue #17）。`submit-sv1` は廃止した。
+`make validate-n15` がレコードを発行し、`make preflight` が無料のドライランを回す。`submit-sv1` は廃止した。
+
+**2026-09-19: 実タスクの投入を実装した**（issue #17 の前半、`aws_session.py`、`runner/submit.py`、
+`runner/task_status.py`、`make preflight` / `submit-qpu` / `task-status`）。**お金が動く経路は
+`docker-compose.yml` の `aws` サービス 1 つだけ**で、`local` は `network_mode: none` のまま据え置く。
+`aws` はホストの `~/.aws` を読み取り専用で `/aws` にマウントし、`HOME` ではなく `AWS_CONFIG_FILE` で指す。
+読み取り専用なので botocore はロールをキャッシュできず、**MFA プロンプトは実行ごとに 1 回**出る（意図的）。
+デバイス→プロファイルの対応は `aws_session.submission_profile_env` が持つ（ibex → AQT ロール、他 → 実行ロール）。
+`submit()` は preflight が通った計画しか受け取らず、送信直前に**回路を再ハッシュ**してレポートが承認した
+program であることを確かめる。`disable_qubit_rewiring` は `False`（verbatim と併用するとサービスが拒否する）。
+作成したタスクは `runs/raw/qpu-*/submission.json` に台帳として残る（gitignore 対象なのでアカウント ID を書ける）。
+**ドライランは Spending Limit を読めない**ので、`--no-execute` のときだけ判定を「資格情報なしで答えられる
+検査がすべて通ったか」に読み替える。これは表示と終了コードにしか効かず、`submit()` の `PermissionError` は無条件。
+`make report` は未実装ガードを維持する（issue #17 の後半、別 PR）。
 
 ### 1. サービス名は Amazon **Braket**（Bracket ではない）
 
@@ -277,7 +289,10 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | DM1 | 必須にしない（LocalEmulator で足りる。AWS 経路の確認は SV1） | issue #7 |
 | 回路ハッシュ | 正規化した IR の JSON に SHA-256。target 順は保存、角度は 12 桁、verbatim と物理 qubit を含め、shots は含めない | `docs/03` §3.2、`gate/circuit_hash.py` |
 | レコードの失効 | 回路ハッシュ / 校正ハッシュ / ARN / SDK major / 正規化版 / 30 日。実質の主判定は校正ハッシュ | `docs/03` §4.3 |
-| Spending Limit が読めないとき | 拒否する（余裕とみなさない） | `gate/preflight.py` |
+| Spending Limit が読めないとき | 拒否する（余裕とみなさない）。ドライランのみ表示上の読み替えあり | `gate/preflight.py`、`docs/03` §5.1 |
+| お金が動く経路 | `docker-compose.yml` の `aws` サービス 1 つだけ。`local` は `network_mode: none` を維持（2026-09-19） | `docs/03` §5.1 |
+| 投入時の資格情報 | ホストの `~/.aws` を読み取り専用マウント。MFA は実行ごとに 1 回（キャッシュしない）（2026-09-19） | `aws_session.py` |
+| 投入記録 | `runs/raw/qpu-*/submission.json`。validated レコードとは別の台帳（2026-09-19） | `runs/README.md` |
 | Terraform の実行主体 | admin（MFA 必須の assume role）。plan は誰でも、apply / destroy は Syota さん本人 | `infra/terraform/README.md` |
 | Budget のフィルタ | コスト配分タグ `project=shor-braket`。サービス単位にはしない（S3 / CloudWatch も使う） | issue #3 |
 | 月次累計の取得元 | AWS Budgets の `CalculatedSpend`（無料、`budgets:ViewBudget`）。Cost Explorer は使わない | issue #7 |
@@ -300,6 +315,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
-| 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。残るは SNS の確認クリックと #4 の stage 2 / 3（約 24 時間後） |
+| 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
-| 5 | 実機 QPU 実行と結果分析 | 低 | ⬜ issue #17 |
+| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 2026-09-19 に投入経路を実装（`submit-qpu` / `task-status`）。実タスクは未投入。`report` は別 PR |
