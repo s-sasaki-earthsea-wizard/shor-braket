@@ -17,7 +17,7 @@ AWS リソースは Terraform で管理し、**「ローカルシミュレータ
 | **Phase 2** | **ローカルシミュレータ検証と実行ゲート** | **高** | ✅ 完了。同時分布検証・結果保存・LocalEmulator 互換性スパイク・N=15 の QPU 互換回路（swap network、3 機でエミュレーション）・反復 QPE（feed-forward）・TVD の標本床の解析・validated レコードと投入ゲート |
 | **Phase 3** | **Terraform による AWS リソース定義** | **高** | ✅ **2026-09-16 apply 完了。** IAM は完成（2026-09-15 に ADR-0004 を apply、ポリシーシミュレータ 14/14）。operator の MFA と exec / aqt プロファイルは 2026-09-16 に完了（#1）。S3 / Budgets + SNS / Spending Limit × 3 のリソース 11 個を作成し、`iam-verify` 22/22。2026-09-18 に stage 2 を apply し、コスト配分タグ `project` を有効化、Garnet の Spending Limit を 5 USD に上げた（[#4](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/4) は stage 3 のみ残る） |
 | ~~Phase 4~~ | ~~Braket オンデマンドシミュレータ (SV1) 実行~~ | — | ❌ 廃止。SV1 は verbatim 回路を実行できないため（[ADR-0004](docs/adr/0004-aqt-role-split-and-single-region.md)） |
-| Phase 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 **2026-09-23 に Garnet で経路確認と本測定**（3000 shots、λ 0.272 ± 0.012 に対し予測 0.564。差の主因は待機 qubit の T1/T2 減衰）。次は t = 3 |
+| Phase 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 **2026-09-23 に Garnet で 3 タスク**（経路確認、t = 2 と t = 3 を各 3000 shots、累計 9.61 USD）。t = 2 の λ は 0.272（予測 0.564）、t = 3 で待機 qubit の可視度は 0.087。差の主因は待機 qubit の位相緩衰。解説は Wiki「実機で最初の 3000 ショット」 |
 
 **2026-09-16: AWS 側のインフラが揃った。** IAM に加えて結果バケット、月次 Budget と SNS 通知、
 3 機の Braket Spending Limit を Terraform で作成した（[#3](https://github.com/s-sasaki-earthsea-wizard/shor-braket/issues/3)）。
