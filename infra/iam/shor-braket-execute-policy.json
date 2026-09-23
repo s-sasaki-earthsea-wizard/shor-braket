@@ -22,12 +22,7 @@
         "braket:TagResource",
         "braket:UntagResource"
       ],
-      "Resource": "*",
-      "Condition": {
-        "Bool": {
-          "aws:MultiFactorAuthPresent": "true"
-        }
-      }
+      "Resource": "*"
     },
     {
       "Sid": "BraketSpendingLimitRead",

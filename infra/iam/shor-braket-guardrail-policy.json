@@ -17,21 +17,6 @@
       ]
     },
     {
-      "Sid": "DenyTaskCreationWithoutMfa",
-      "Effect": "Deny",
-      "Action": [
-        "braket:CreateQuantumTask",
-        "braket:CancelQuantumTask",
-        "braket:CreateJob"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "BoolIfExists": {
-          "aws:MultiFactorAuthPresent": "false"
-        }
-      }
-    },
-    {
       "Sid": "DenySpendingLimitChanges",
       "Effect": "Deny",
       "Action": [

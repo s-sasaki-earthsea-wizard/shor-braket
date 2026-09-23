@@ -9,6 +9,13 @@
 # unconditional deny on it, and ShorBraketAqtRole carries an unconditional deny on IQM.
 # Reaching the expensive machine therefore takes a different AssumeRole, which CloudTrail
 # records, instead of a tag the caller sets on its own request (ADR-0004).
+#
+# MFA is enforced in exactly one place: the roles' trust policies. A session assumed with MFA
+# still evaluates aws:MultiFactorAuthPresent as false inside the role (measured 2026-09-23:
+# CloudTrail showed mfaAuthenticated=false on every call of an MFA-assumed session, and the
+# guardrail's MFA deny refused a Garnet task). So no policy attached to a role may test that
+# key; the check lives in the trust policy, and a user-only guardrail keeps long-term keys away
+# from task creation in case a user is ever granted it.
 
 data "aws_caller_identity" "current" {}
 
@@ -17,12 +24,13 @@ locals {
   iam_dir    = "${path.module}/../iam"
 
   policy_files = {
-    readonly     = "shor-braket-readonly-policy.json"
-    assume_roles = "shor-braket-assume-roles-policy.json"
-    execute      = "shor-braket-execute-policy.json"
-    guardrail    = "shor-braket-guardrail-policy.json"
-    deny_aqt     = "shor-braket-deny-aqt-policy.json"
-    deny_iqm     = "shor-braket-deny-iqm-policy.json"
+    readonly       = "shor-braket-readonly-policy.json"
+    assume_roles   = "shor-braket-assume-roles-policy.json"
+    execute        = "shor-braket-execute-policy.json"
+    guardrail      = "shor-braket-guardrail-policy.json"
+    user_guardrail = "shor-braket-user-guardrail-policy.json"
+    deny_aqt       = "shor-braket-deny-aqt-policy.json"
+    deny_iqm       = "shor-braket-deny-iqm-policy.json"
   }
 
   rendered = {
@@ -99,14 +107,30 @@ resource "aws_iam_policy" "assume_roles" {
 
 resource "aws_iam_policy" "execute" {
   name        = "shor-braket-execute"
-  description = "Create and manage Braket quantum tasks, write results, log usage."
+  description = "Create and manage Braket quantum tasks, write results, log usage. Roles only; MFA is enforced by the trust policies."
   policy      = local.rendered.execute
+
+  lifecycle {
+    precondition {
+      condition = alltrue([
+        for key in ["execute", "guardrail", "deny_aqt", "deny_iqm"] :
+        !strcontains(local.rendered[key], "aws:MultiFactorAuthPresent")
+      ])
+      error_message = "A role-attached policy tests aws:MultiFactorAuthPresent. Inside an assumed role that key evaluates as absent even when MFA was used, so the test either blocks everything or nothing. Enforce MFA in the trust policy instead."
+    }
+  }
 }
 
 resource "aws_iam_policy" "guardrail" {
   name        = "shor-braket-guardrail"
-  description = "Deny-only guardrail shared by every principal: budget-breaking devices, MFA-less task creation, hybrid jobs, notebooks."
+  description = "Deny-only guardrail shared by every principal: budget-breaking devices, spending limit changes, hybrid jobs, notebooks."
   policy      = local.rendered.guardrail
+}
+
+resource "aws_iam_policy" "user_guardrail" {
+  name        = "shor-braket-user-guardrail"
+  description = "Users only. Denies task creation without MFA, i.e. from long-term keys. Never attach to a role: role sessions evaluate MFA as absent even when assumed with it."
+  policy      = local.rendered.user_guardrail
 }
 
 resource "aws_iam_policy" "deny_aqt" {
@@ -182,6 +206,11 @@ resource "aws_iam_user_policy_attachment" "monitor_guardrail" {
   policy_arn = aws_iam_policy.guardrail.arn
 }
 
+resource "aws_iam_user_policy_attachment" "monitor_user_guardrail" {
+  user       = aws_iam_user.monitor.name
+  policy_arn = aws_iam_policy.user_guardrail.arn
+}
+
 resource "aws_iam_user_policy_attachment" "monitor_deny_aqt" {
   user       = aws_iam_user.monitor.name
   policy_arn = aws_iam_policy.deny_aqt.arn
@@ -200,6 +229,11 @@ resource "aws_iam_user_policy_attachment" "operator_assume_roles" {
 resource "aws_iam_user_policy_attachment" "operator_guardrail" {
   user       = aws_iam_user.operator.name
   policy_arn = aws_iam_policy.guardrail.arn
+}
+
+resource "aws_iam_user_policy_attachment" "operator_user_guardrail" {
+  user       = aws_iam_user.operator.name
+  policy_arn = aws_iam_policy.user_guardrail.arn
 }
 
 resource "aws_iam_user_policy_attachment" "operator_deny_aqt" {
