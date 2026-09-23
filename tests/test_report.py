@@ -32,10 +32,10 @@ TASK_ARN = "arn:aws:braket:eu-north-1:000000000000:quantum-task/stub-0001"
 def _shot_for(index: int) -> list[int]:
     """Build one measurement row whose desired-order reading is ``index``.
 
-    The device reports one bit per measured qubit in ascending physical order, so the bits of
-    ``index`` (most significant first, in register order) have to be scattered to the positions
-    those qubits occupy in that ascending list. Getting this backwards is exactly the mistake
-    the recorded layout exists to prevent, so the test does the scattering the long way round.
+    The bits of ``index`` (most significant first, in register order) have to be scattered to
+    the positions those qubits occupy in the reported list. Getting this backwards is exactly the
+    mistake the recorded layout exists to prevent, so the test does the scattering the long way
+    round. The real-order case is covered separately below.
     """
     bits = format(index, f"0{len(DESIRED)}b")
     row = [0] * len(MEASURED)
@@ -197,3 +197,54 @@ def test_a_record_without_a_layout_cannot_be_analysed(tmp_path):
 def test_reporting_with_nothing_submitted_says_so(tmp_path):
     with pytest.raises(ValueError, match="nothing has been submitted yet"):
         run_report(None, result_file=tmp_path / "missing.json", run_dir=tmp_path)
+
+
+# --- the order a real device reports in -----------------------------------------------------
+
+# The first Garnet task (2026-09-23) reported seven qubits in this order: not ascending, and
+# including 10, a SWAP transit qubit that belongs to neither register.
+GARNET_REPORTED = [19, 15, 10, 18, 14, 20, 16]
+GARNET_COUNT = [15, 16]
+GARNET_WORK = [18, 20, 14, 19]
+
+
+def _garnet_document(indices, seed: int = 3) -> dict:
+    """Shots in the reported order, with random bits on the transit qubit."""
+    rng = np.random.default_rng(seed)
+    desired = [*GARNET_COUNT, *GARNET_WORK]
+    rows = []
+    for index in indices:
+        bits = format(int(index), "06b")
+        row = [int(rng.integers(0, 2))] * len(GARNET_REPORTED)
+        for bit, qubit in zip(bits, desired, strict=True):
+            row[GARNET_REPORTED.index(qubit)] = int(bit)
+        rows.append(row)
+    return {"measuredQubits": GARNET_REPORTED, "measurements": rows}
+
+
+def test_the_reported_order_and_a_transit_qubit_do_not_disturb_the_analysis():
+    from shor_braket.runner.report import analyze_counts
+
+    analysis = analyze_counts(
+        parse_task_result(_garnet_document(_ideal_indices(20000))),
+        count_physical=GARNET_COUNT,
+        work_physical=GARNET_WORK,
+        base=7,
+    )
+    # An ideal device still reads as one: the transit qubit is marginalised and the bits are
+    # taken from their reported positions, not from an assumed ascending order.
+    assert analysis["metrics"]["signal_fraction_support_mass"] == pytest.approx(1.0, abs=0.02)
+
+
+def test_assuming_ascending_order_would_have_scrambled_the_result():
+    """Reading the same shots as if they were reported in ascending order loses the signal."""
+    from shor_braket.runner.report import TaskResult, analyze_counts
+
+    parsed = parse_task_result(_garnet_document(_ideal_indices(20000)))
+    wrong = TaskResult(
+        counts=parsed.counts, measured_qubits=sorted(GARNET_REPORTED), shots=parsed.shots
+    )
+    analysis = analyze_counts(
+        wrong, count_physical=GARNET_COUNT, work_physical=GARNET_WORK, base=7
+    )
+    assert analysis["metrics"]["signal_fraction_support_mass"] < 0.5
