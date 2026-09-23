@@ -106,7 +106,12 @@ program であることを確かめる。`disable_qubit_rewiring` は `False`（
 **同日、修正の apply（`iam-verify` 26/26）後に経路確認が通った。** Garnet・generic-constant・10 shots、
 作成から完了まで約 5 秒、課金は見積りどおり 0.3145 USD（Spending Limit の `totalSpend`）、タグ `project` / `oracle` がタスクに付いた。
 `make report` の λ は **0.333 ± 0.211**（予測 0.564、差は −1.1σ、ゼロからは +1.6σ）で、**10 shots では予測とも一様乱数とも
-区別できない**。これは経路確認として想定どおりで、物理の測定ではない。デバイスは測定 qubit を**昇順でなく**、
+区別できない**。これは経路確認として想定どおりで、物理の測定ではない。
+**同日の本測定（Garnet・generic-constant・3000 shots、4.65 USD、`campaign=n15-garnet-2026-09`）は λ 0.272 ± 0.012**
+（予測 0.564 から −24σ、ゼロから +22σ）。work の上位 4 値は軌道 {1,4,7,13} そのもので配線の誤りは無い。
+**この λ は t = 2 では「work が軌道に乗った割合」（0.454）の言い換えで、count register のコヒーレンスを見ていない**
+（下の実装指針）。差の主因は**待機 qubit の T1/T2 減衰**で、`make decoherence-study` が予測を 0.29 に下げ、
+0 側への偏りも再現する。非対称な読み出し誤りは差をほとんど説明しない（0.565）。ゲート時間はスナップショットに無く仮定。デバイスは測定 qubit を**昇順でなく**、
 SWAP の中継 qubit も含めて返した（`[19, 15, 10, 18, 14, 20, 16]`）。解析は結果の `measuredQubits` を使うので影響なし。
 **`make report` も実装した**（`runner/report.py`、`visualization/qpu.py`）。結果 JSON を投入記録の
 `register_layout` で count + work の同時分布に直し、理想分布および**エミュレーションが予測した λ** と比較する。
@@ -204,7 +209,15 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - Braket の `Probability(target=...)` は昇順でない target 順を守らない。昇順で取って自分で並べ替える
   （`runner/n15.py` の `reorder_probabilities`）。全結合機は接続グラフが空で `ResultTypeValidator` が
   `Probability` を拒否するので、解析用のノイズ付き回路は `noise_model.apply` で作る
-- t=2 では count register の周辺分布は理想でも一様。評価は必ず count + work の同時分布で行う
+- t=2 では count register の周辺分布は理想でも一様。評価は必ず count + work の同時分布で行う。
+  **ただし N = 15 では位数が 2 のべきなので、理想の同時分布は「許される y」×「軌道上の work」の直積で、
+  count を完全にデコヒーレンスさせた分布と t = 2 では一致する**（2026-09-23 に判明）。t = 2 の λ は
+  `orbit_mass`（乗算ネットワークの忠実度）の言い換えで、干渉もコヒーレンスも見ていない。t ≥ 3 の
+  `low_bit_visibility` は U^4 = I を制御して |+⟩ で待機する count qubit の位相保持（その場の T2）を測る。
+  **どちらも count qubit どうしの干渉ではない。** それを見るには位数が 2 のべきでない N（例 N = 21、r = 6）が要る
+- エミュレータの予測には**待機 qubit の T1/T2 減衰が無い**。`runner/decoherence.py` がそれを足した予測を並べる。
+  忙しい qubit には足さない（RB 忠実度にゲート中の減衰が含まれるので二重計上になる）。ゲート時間は
+  スナップショットに無いので `SCENARIOS` で仮定し、1 点に合わせ込まない
 - **feed-forward 回路（`measure_ff` / `cc_prx`）のノイズ付き実行に SDK の shot 毎シミュレーションを使わない。**
   default-simulator 1.40.1 の分岐実行は 1 qubit depolarizing と測定後の bit-flip を落とす（`LocalEmulator.run` も同じ）。
   厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
@@ -328,6 +341,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 経路確認時の Garnet の Limit | **5 USD**（10 ショット 0.3145 USD、再試行の余裕込み。stage 2 の apply で上げる） | issue #17 |
 | 本測定の構成 | Garnet・generic-constant・**3000 shots**（4.65 USD、λ の標準誤差 ≈ 0.011）。Garnet の Limit を **10 USD** に上げる（2026-09-23） | Syota さん判断 |
 | 本測定とタグ有効化の待ち時間 | 今回は**待たない**。投入時の見積りと Budget で確認する。「有効化から 24 時間後以降」の原則を本測定 1 回について外した（2026-09-23） | Syota さん判断 |
+| t = 2 の λ の読み方 | 乗算ネットワークの忠実度（`orbit_mass` の言い換え）。干渉・コヒーレンスの証拠として書かない（2026-09-23） | `analysis/distribution.py` |
+| 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
 
@@ -342,4 +357,4 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
 | 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
-| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 2026-09-19 に投入と解析を実装。**2026-09-23 に経路確認が完了**（Garnet 10 shots、0.3145 USD、λ 0.333 ± 0.211）。本測定は未実施 |
+| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 **2026-09-23 に Garnet で経路確認と本測定**（3000 shots、λ 0.272 ± 0.012、予測 0.564。主因は待機 qubit の T1/T2）。次は t = 3 で待機 qubit のコヒーレンスを測る |
