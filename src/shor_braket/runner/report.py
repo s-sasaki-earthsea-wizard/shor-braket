@@ -39,13 +39,16 @@ from numpy.typing import NDArray
 from shor_braket.analysis.distribution import (
     expected_joint_probabilities,
     hellinger_fidelity,
+    low_bit_visibility,
     noisy_verdict,
+    orbit_mass,
     sampling_floor,
     signal_fraction,
     support_signal_fraction,
     support_signal_fraction_error,
     total_variation_distance,
 )
+from shor_braket.classical.order import multiplicative_order
 from shor_braket.quantum.n15 import MODULUS
 from shor_braket.runner.n15 import joint_from_counts, order_recovery
 from shor_braket.runner.submit import DEFAULT_RUN_DIR
@@ -190,6 +193,18 @@ def analyze_counts(
             "signal_fraction_tvd": lambda_tvd,
             "ideal_support_mass_sampled": support_mass,
             "support_fraction": support_fraction,
+            # What the multiplication network is responsible for. At t = 2 the support-mass
+            # signal fraction is this number rescaled and says nothing about the count register.
+            "orbit_mass": orbit_mass(
+                sampled, modulus=MODULUS, base=base, work_qubit_count=len(work_physical)
+            ),
+            # Coherence of the count qubits that control U^(2^k) = I, from t = 3 up.
+            "low_bit_visibility": low_bit_visibility(
+                sampled,
+                count_qubit_count=count_qubit_count,
+                work_qubit_count=len(work_physical),
+                order=multiplicative_order(base, MODULUS),
+            ),
             "hellinger_fidelity": hellinger_fidelity(sampled, expected),
             "order_recovery_rate_sampled": recovery["rate"],
             "order_recovery_baseline_uniform_y": recovery["baseline_uniform_y"],

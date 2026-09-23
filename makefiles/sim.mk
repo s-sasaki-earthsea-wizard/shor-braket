@@ -25,15 +25,19 @@ emulate-all:  ## 3 機すべてで emulate を実行し、比較図と report.md
 N15_DEVICE ?= all
 N15_ORACLE ?= all
 N15_SHOTS  ?= 20000
+# Count register size for the N=15 circuits. 2 is the default and the route-check circuit;
+# 3 adds one count qubit whose U^4 = I control leaves it idling in |+> (an in-situ T2 probe).
+N15_T      ?= 2
 
 .PHONY: emulate-n15
 emulate-n15:  ## N=15 の QPU 互換回路 (swap network, t=2) を 3 機の LocalEmulator で実行し信号の残存を比較する (無料・オフライン。N15_DEVICE / N15_ORACLE / N15_SHOTS)
-	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15_SHOTS)"
+	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" --shots "$(N15_SHOTS)" \
+		--count-qubits "$(N15_T)"
 
 .PHONY: validate-n15
 validate-n15:  ## N=15 の QPU 互換回路をエミュレートし、合格した構成に validated レコードを発行する (無料・オフライン)
 	$(LOCAL_RUN) shor-braket emulate-n15 --device "$(N15_DEVICE)" --oracle "$(N15_ORACLE)" \
-		--shots "$(N15_SHOTS)" --issue-records
+		--shots "$(N15_SHOTS)" --count-qubits "$(N15_T)" --issue-records
 
 N15I_SHOTS ?= 4000
 
@@ -53,3 +57,8 @@ validated:  ## 検証済みレコード runs/validated の一覧を表示する 
 circuit:  ## QPU 互換回路を組み立てて circuit_hash を表示する (実行はしない。DEVICE / ORACLE / QASM=1)
 	$(LOCAL_RUN) shor-braket circuit --device "$(DEVICE)" --oracle "$(ORACLE)" \
 		$(if $(QASM),--qasm,--no-qasm)
+
+.PHONY: decoherence-study
+decoherence-study:  ## 待機 qubit の T1/T2 と非対称読み出しを足した予測を今のモデルと並べる (無料・オフライン。DEVICE / ORACLE / N15_T)
+	$(LOCAL_RUN) shor-braket decoherence-study --device "$(DEVICE)" --oracle "$(ORACLE)" \
+		--count-qubits "$(N15_T)"

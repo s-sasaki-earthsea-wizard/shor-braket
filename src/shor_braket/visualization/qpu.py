@@ -64,9 +64,18 @@ def qpu_markdown(analysis: dict[str, Any]) -> str:
         f"| 差（実機 − 予測） | {_format(difference)} |",
         f"| 合格線 {pass_line} に対する判定 | {_format(verdict['passed'])} |",
         f"| 信号が検出されたか（λ > {sigmas} σ） | {_format(verdict.get('signal_detected'))} |",
+        f"| work が軌道に乗った割合 | {_format(metrics.get('orbit_mass'))} |",
+        f"| 下位ビットの可視度（t ≥ 3） | {_format(metrics.get('low_bit_visibility'))} |",
         "",
         "λ は「理想分布と一様分布の混合」とみなしたときの理想側の重み。サポート質量由来の推定量は"
         "カウントに対して線形なので、ショット数によらず不偏である。",
+        "",
+        "**N = 15 では位数が 2 のべきなので、理想の同時分布は"
+        "「許される y」と「軌道上の work」の直積になる。**"
+        "t = 2 では y がすべて許されるので、λ は work が軌道に乗った割合を言い換えただけで、"
+        "count register のコヒーレンスは見ていない。t ≥ 3 の下位ビットの可視度は、"
+        "U^4 = I を制御して |+⟩ のまま待機する count qubit が位相を保てたかを測る"
+        "（1 なら理想、0 ならデコヒーレンス）。どちらも count qubit どうしの干渉ではない。",
         "",
         "## 2. 分布の距離",
         "",

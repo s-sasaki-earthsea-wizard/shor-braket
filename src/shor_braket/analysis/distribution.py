@@ -106,6 +106,66 @@ def support_signal_fraction_error(
     return float(np.sqrt(mass * (1.0 - mass) / shots) / (1.0 - support_fraction))
 
 
+def orbit_mass(
+    joint: NDArray[np.float64], *, modulus: int, base: int, work_qubit_count: int
+) -> float:
+    """Probability that the work register ends on the orbit ``{base**k mod modulus}``.
+
+    This is what the modular multiplication network is responsible for, and nothing else. When
+    the order divides ``2**t`` (always the case for N = 15, whose orders are 1, 2 and 4) the ideal
+    joint distribution is a product: every allowed ``y`` with every orbit value, uniformly. The
+    support-mass signal fraction then depends on the work register alone, so at ``t = 2`` it is
+    this quantity rescaled, and it cannot see whether the count register stayed coherent.
+
+    Args:
+        joint: Joint distribution, count register major, work register minor.
+        modulus: N.
+        base: The base whose orbit the work register should land on.
+        work_qubit_count: Size of the work register.
+
+    Returns:
+        The mass on orbit values, summed over every count value.
+    """
+    work_dimension = 1 << work_qubit_count
+    orbit = {pow(base, k, modulus) for k in range(modulus)}
+    table = np.asarray(joint, dtype=np.float64).reshape(-1, work_dimension)
+    return float(table[:, sorted(orbit)].sum())
+
+
+def low_bit_visibility(
+    joint: NDArray[np.float64], *, count_qubit_count: int, work_qubit_count: int, order: int
+) -> float | None:
+    """How much of the count register's low-bit structure survived, from 0 (none) to 1 (ideal).
+
+    When ``order`` divides ``2**t`` the ideal ``y`` is always a multiple of ``2**t / order``. A
+    count register that lost its coherence gives a uniform ``y`` instead, which lands on those
+    multiples only ``order / 2**t`` of the time. The visibility rescales the observed fraction
+    between those two ends, so it is 1 for the ideal device and 0 for a fully dephased register.
+
+    For N = 15 the low bits come from count qubits that control ``U**4 = I``: they sit in
+    ``|+>`` for the whole circuit and are turned back to ``|0>`` by the inverse QFT. So this
+    measures how well an idle qubit kept its phase, not interference between count qubits.
+
+    Args:
+        joint: Joint distribution, count register major, work register minor.
+        count_qubit_count: t.
+        work_qubit_count: Size of the work register.
+        order: The true order r.
+
+    Returns:
+        The visibility, or ``None`` when ``2**t / order`` is not an integer above one (at
+        ``t = 2`` with ``r = 4`` every ``y`` is allowed and there is nothing to see).
+    """
+    count_dimension = 1 << count_qubit_count
+    if count_dimension % order != 0 or count_dimension // order < 2:
+        return None
+    step = count_dimension // order
+    table = np.asarray(joint, dtype=np.float64).reshape(count_dimension, 1 << work_qubit_count)
+    on_multiples = float(table[::step].sum())
+    chance = 1.0 / step
+    return (on_multiples - chance) / (1.0 - chance)
+
+
 def noiseless_verdict(
     *, exact_tvd: float, sampled_tvd: float, expected: NDArray[np.float64], shots: int
 ) -> dict[str, Any]:

@@ -43,6 +43,7 @@ from shor_braket.gate.spending import (
     no_spending_limit_lookup,
 )
 from shor_braket.quantum.n15 import ORACLE_MODES
+from shor_braket.runner.decoherence import decoherence_study
 from shor_braket.runner.emulator import run_emulator_comparison, run_emulator_report
 from shor_braket.runner.local import run_local
 from shor_braket.runner.n15 import run_n15_emulation
@@ -671,4 +672,28 @@ def report(
         raise typer.Exit(code=1) from error
     except (ClientError, BotoCoreError) as error:
         typer.echo(f"error: could not read the result: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
+@app.command("decoherence-study")
+def decoherence(
+    device: Annotated[str, typer.Option("--device", help="garnet | emerald")] = "garnet",
+    oracle: Annotated[
+        str, typer.Option("--oracle", help="generic-constant | generic-repeated")
+    ] = "generic-constant",
+    count_qubits: Annotated[int, typer.Option("--count-qubits", "-t", min=1)] = 2,
+    snapshot_dir: Annotated[Path, typer.Option(file_okay=False)] = DEFAULT_SNAPSHOT_DIR,
+) -> None:
+    """Predict hardware metrics with idle T1/T2 decay and asymmetric readout added (offline)."""
+    try:
+        _echo_json(
+            decoherence_study(
+                device_key=device,
+                oracle_mode=oracle,
+                count_qubit_count=count_qubits,
+                snapshot_dir=snapshot_dir,
+            )
+        )
+    except (ValueError, FileNotFoundError) as error:
+        typer.echo(f"error: {error}", err=True)
         raise typer.Exit(code=1) from error

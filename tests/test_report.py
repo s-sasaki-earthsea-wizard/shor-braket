@@ -248,3 +248,64 @@ def test_assuming_ascending_order_would_have_scrambled_the_result():
         wrong, count_physical=GARNET_COUNT, work_physical=GARNET_WORK, base=7
     )
     assert analysis["metrics"]["signal_fraction_support_mass"] < 0.5
+
+
+# --- t = 3 ------------------------------------------------------------------------------------
+
+
+def _t3_document(indices, count_physical, work_physical, measured) -> dict:
+    desired = [*count_physical, *work_physical]
+    rows = []
+    for index in indices:
+        bits = format(int(index), "07b")
+        row = [0] * len(measured)
+        for bit, qubit in zip(bits, desired, strict=True):
+            row[measured.index(qubit)] = int(bit)
+        rows.append(row)
+    return {"measuredQubits": measured, "measurements": rows}
+
+
+def test_a_t3_result_reports_the_low_bit_visibility(tmp_path):
+    from shor_braket.runner.report import analyze_counts
+
+    count_physical, work_physical = [10, 11, 15], [18, 20, 14, 19]
+    measured = [19, 15, 10, 18, 14, 20, 16, 11]
+    expected = expected_joint_probabilities(
+        modulus=15, base=7, count_qubit_count=3, work_qubit_count=4
+    )
+    rng = np.random.default_rng(5)
+
+    ideal = analyze_counts(
+        parse_task_result(
+            _t3_document(
+                rng.choice(expected.size, size=20000, p=expected),
+                count_physical,
+                work_physical,
+                measured,
+            )
+        ),
+        count_physical=count_physical,
+        work_physical=work_physical,
+        base=7,
+    )
+    assert ideal["metrics"]["low_bit_visibility"] == pytest.approx(1.0, abs=0.02)
+    assert ideal["metrics"]["orbit_mass"] == pytest.approx(1.0, abs=0.02)
+
+    # A dephased count register keeps the orbit but scatters y over all eight values.
+    dephased = np.zeros((8, 16))
+    dephased[:, [1, 4, 7, 13]] = 1 / 32
+    scattered = analyze_counts(
+        parse_task_result(
+            _t3_document(
+                rng.choice(128, size=20000, p=dephased.reshape(-1)),
+                count_physical,
+                work_physical,
+                measured,
+            )
+        ),
+        count_physical=count_physical,
+        work_physical=work_physical,
+        base=7,
+    )
+    assert scattered["metrics"]["low_bit_visibility"] == pytest.approx(0.0, abs=0.03)
+    assert scattered["metrics"]["orbit_mass"] == pytest.approx(1.0, abs=0.02)
