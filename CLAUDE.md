@@ -326,6 +326,9 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | Budget 通知 | SNS トピック + email サブスクリプション。確認クリックは手作業（2026-09-16） | `infra/terraform/budget.tf`、issue #4 |
 | `.terraform.lock.hcl` | コミットする（2026-09-16） | `infra/terraform/README.md` |
 | 経路確認時の Garnet の Limit | **5 USD**（10 ショット 0.3145 USD、再試行の余裕込み。stage 2 の apply で上げる） | issue #17 |
+| 本測定の構成 | Garnet・generic-constant・**3000 shots**（4.65 USD、λ の標準誤差 ≈ 0.011）。Garnet の Limit を **10 USD** に上げる（2026-09-23） | Syota さん判断 |
+| 本測定とタグ有効化の待ち時間 | 今回は**待たない**。投入時の見積りと Budget で確認する。「有効化から 24 時間後以降」の原則を本測定 1 回について外した（2026-09-23） | Syota さん判断 |
+| `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
 
 ---

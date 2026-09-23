@@ -348,6 +348,8 @@ make preflight DEVICE=garnet ORACLE=generic-constant SHOTS=10
 
 # 5. ⚠️ 課金対象: 実機 QPU にタスクを投入する（MFA が要る。確認プロンプトあり）
 make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=10
+# 費用をまとめて追いたい実験には campaign タグを付ける（preflight にも同じ値を渡すとタグが一致する）
+make submit-qpu DEVICE=garnet ORACLE=generic-constant SHOTS=3000 BRAKET_CAMPAIGN=n15-garnet-2026-09
 
 # 6. 投入済みタスクの状態を見る（読み取りのみ・課金なし・MFA 不要）
 make task-status
