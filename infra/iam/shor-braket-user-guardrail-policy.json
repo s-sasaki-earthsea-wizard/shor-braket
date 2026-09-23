@@ -1,0 +1,20 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DenyTaskCreationWithoutMfa",
+      "Effect": "Deny",
+      "Action": [
+        "braket:CreateQuantumTask",
+        "braket:CancelQuantumTask",
+        "braket:CreateJob"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "BoolIfExists": {
+          "aws:MultiFactorAuthPresent": "false"
+        }
+      }
+    }
+  ]
+}

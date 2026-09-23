@@ -530,7 +530,7 @@
   },
   "capabilities_sha256": "sha256:48ec887c9c01a560105a6125fa5d53670cbf04f22f3c569da7e464cdc1c2e947",
   "device_type": "QPU",
-  "fetched_at": "2026-09-18T17:01:38.344868+00:00",
+  "fetched_at": "2026-09-23T06:44:59.145988+00:00",
   "key": "ibex",
   "name": "IBEX Q1",
   "provider": "AQT",

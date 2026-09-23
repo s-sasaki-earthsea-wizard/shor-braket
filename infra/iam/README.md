@@ -13,8 +13,8 @@ IAM プリンシパルを **4 つ**に分ける。**課金が発生する操作�
 
 | プリンシパル | 種別 | ポリシー | MFA | 用途 |
 |---|---|---|---|---|
-| `shor-braket-monitor` | IAM ユーザー | readonly + deny-aqt | 不要 | **監視専用。** 閲覧のみで、ロールを assume する権限を持たない |
-| `shor-braket-operator` | IAM ユーザー | readonly + assume-roles + deny-aqt | 読み取り時は不要 | 操作者の日常作業。読み取りと、2 つのロールへの assume |
+| `shor-braket-monitor` | IAM ユーザー | readonly + guardrail + **user-guardrail** + deny-aqt | 不要 | **監視専用。** 閲覧のみで、ロールを assume する権限を持たない |
+| `shor-braket-operator` | IAM ユーザー | readonly + assume-roles + guardrail + **user-guardrail** + deny-aqt | 読み取り時は不要 | 操作者の日常作業。読み取りと、2 つのロールへの assume |
 | `ShorBraketExecutionRole` | IAM ロール | execute + guardrail + **deny-aqt** | **必須** | IQM へのタスク投入。operator が MFA 付きで assume |
 | `ShorBraketAqtRole` | IAM ロール | execute + guardrail + **deny-iqm** | **必須** | AQT へのタスク投入**のみ**。ADR-0004 |
 
@@ -43,6 +43,7 @@ IAM User: shor-braket-monitor
 
 IAM User: shor-braket-operator
   ├─ shor-braket-readonly-policy.json      (直接アタッチ・MFA 不要)
+  ├─ shor-braket-user-guardrail-policy.json (Deny。長期キーからのタスク作成。ユーザー専用)
   ├─ shor-braket-deny-aqt-policy.json      (Deny。長期キーから AQT に到達させない)
   └─ shor-braket-assume-roles-policy.json  (sts:AssumeRole のみ。MFA 条件なし)
        │
@@ -103,7 +104,8 @@ duration_seconds = 3600
 | `execution-role-trust-policy.json` | 信頼ポリシー | ロール `ShorBraketExecutionRole` |
 | `aqt-role-trust-policy.json` | 信頼ポリシー | ロール `ShorBraketAqtRole` |
 | `shor-braket-execute-policy.json` | Allow | 両ロール |
-| `shor-braket-guardrail-policy.json` | Deny | 全プリンシパル共通 |
+| `shor-braket-guardrail-policy.json` | Deny | 全プリンシパル共通。**MFA の条件を持たない** |
+| `shor-braket-user-guardrail-policy.json` | Deny | 両ユーザー**のみ**。MFA なし（＝長期キー）のタスク作成を拒否。**ロールに付けない**（§4.4） |
 | `shor-braket-deny-aqt-policy.json` | Deny | 両ユーザーと `ShorBraketExecutionRole` |
 | `shor-braket-deny-iqm-policy.json` | Deny | `ShorBraketAqtRole` **のみ** |
 | `shor-braket-guardrail-allowlist-EXPERIMENTAL.json` | Deny | **未検証**。§6 参照 |
@@ -151,10 +153,13 @@ Terraform 側の対応する変数は `infra/terraform/terraform.tfvars`
 `aws:MultiFactorAuthAge` を入れると、MFA 認証から 1 時間以上経ったセッションでは
 assume できなくなる。
 
-### 4.2 ガードレール側（保険）
+### 4.2 ユーザー側のガードレール（保険）
 
-`shor-braket-guardrail-policy.json` の `DenyTaskCreationWithoutMfa` で、
-MFA なしの `CreateQuantumTask` を明示的に拒否する。
+`shor-braket-user-guardrail-policy.json` の `DenyTaskCreationWithoutMfa` で、
+MFA なしの `CreateQuantumTask` を明示的に拒否する。**付けるのは両ユーザーだけ。**
+ユーザーは今もタスク作成の Allow を持たないので、これは将来だれかが Allow を足したときの保険。
+2026-09-22 までは全プリンシパル共通の `shor-braket-guardrail-policy.json` に入っていて、
+ロールにも付いていた。それが §4.4 の事故の原因。
 
 ```json
 "Condition": {
@@ -176,6 +181,31 @@ MFA の強制は信頼ポリシー（§4.1）が担う。
 ユーザー側の Allow に `aws:MultiFactorAuthPresent` 条件を付けると、長期キーで署名した
 AssumeRole リクエストにはそのキーが存在しないため、条件が一致せず assume が失敗しうる。
 効いたとしても信頼ポリシーと二重であり、効かなければ exec プロファイルが壊れるだけなので置かない。
+
+### 4.4 ロールに付くポリシーで MFA を判定しない（2026-09-23 実測）
+
+**MFA 付きで assume したロールのセッションでも、セッション内では `aws:MultiFactorAuthPresent` が
+偽として評価される。** Garnet への最初の `CreateQuantumTask` が、ロールに付いていた
+`DenyTaskCreationWithoutMfa` で拒否された（課金なし）。CloudTrail で確かめた事実:
+
+| 観察 | 結果 |
+|---|---|
+| AssumeRole（boto3、2026-09-23） | `serialNumber` 付きで成功 |
+| 同じセッションの `GetCallerIdentity` / `SearchSpendingLimits` / `CreateQuantumTask` | すべて `mfaAuthenticated: false` |
+| AdminRole のセッション（aws-cli、2026-09-18、serial 付き） | これも `mfaAuthenticated: false` |
+| 長期キーで MFA なしの assume（exec / aqt） | 両方 `AccessDenied` |
+
+CLI でも boto3 でも同じなので、クライアントの問題ではない。したがって:
+
+- MFA を強制する場所は**信頼ポリシーだけ**（§4.1）。そこは実測で効いている
+- ロールに付くポリシー（execute / guardrail / deny-aqt / deny-iqm）は `aws:MultiFactorAuthPresent` を
+  **一切参照しない**。実行ポリシーの `BraketQuantumTasks` にあった `Bool ... "true"` 条件も同じ理由で外した。
+  残していれば Deny を外しても暗黙の拒否で落ちる
+- Terraform の `aws_iam_policy.execute` に precondition を置き、ロールに付くポリシーがこのキーを
+  含んだら plan で止まるようにした
+
+守りは弱まらない。タスク作成の Allow を持つのは 2 ロールだけで、そこへ入るには MFA が要る。
+`iam-verify` がこれを見逃した理由は §7 の注意書きにある。
 
 ---
 
@@ -336,10 +366,23 @@ IAM ポリシーシミュレータで評価する。実際に量子タスクを�
 make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 ```
 
-実体は `infra/iam/verify-guardrails.sh`。**22 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
+実体は `infra/iam/verify-guardrails.sh`。**26 項目を評価し、期待値と突き合わせて ok / FAIL を出す。**
+うち 24 項目はシミュレータ、節 3 の 2 項目は**実際に MFA なしで AssumeRole を呼ぶ**プローブ（拒否されるのが正、課金なし）。
 1 件でも食い違えば終了コード 1 を返すので、ポリシーを変えたときのゲートとして使える。
 
-### 実測結果（2026-09-15 に節 1〜5 の **14/14**、2026-09-16 に節 6 を加えて **22/22**。どちらも終了コード 0、`shor-braket-ro` で実行）
+### 2026-09-23 の書き直しと再測定
+
+**旧版はロールを `aws:MultiFactorAuthPresent=true` の文脈で模擬していた。** 実物のロールセッションは
+この値を偽として持つので（§4.4）、旧版の 22/22 は「与えた文脈の下では正しい」答えでしかなかった。
+書き直した版はロールを偽の文脈で模擬し、デバイス ARN にアカウント ID を入れ（サービスが評価する
+リソースはこの形）、MFA は信頼ポリシーへの実際の AssumeRole で確かめる。
+
+| 時点 | 結果 |
+|---|---|
+| 修正前のポリシーに対して（2026-09-23） | **22/26。** 失敗はロールの `allowed` 4 行（Garnet / Emerald / Cepheus / IBEX）だけで、実物の事故をそのまま再現した |
+| 修正後の apply 後（2026-09-23 07:04 UTC） | **26/26。** ロールの `allowed` 4 行が通り、Deny 側と MFA なし assume の拒否は維持。直後の `tf-plan` は No changes（3 add / 2 change / 0 destroy を Syota さんが apply） |
+
+### 旧版の実測結果（2026-09-15 に節 1〜5 の **14/14**、2026-09-16 に節 6 を加えて **22/22**。**前提の文脈が誤っていた**）
 
 ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になっているのが要点で、
 **2 つのロールが互いの領域に到達できないこと**を実物のポリシーで確認できている。
@@ -397,7 +440,7 @@ ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になって�
 |---|---|---|
 | 1 | `ShorBraketExecutionRole` | IQM 2 機と Rigetti が `allowed`、**AQT と IonQ が `explicitDeny`** |
 | 2 | `ShorBraketAqtRole` | **AQT が `allowed`、IQM 2 機が `explicitDeny`**（1 の鏡像） |
-| 3 | 両ロール | MFA なしはすべて `explicitDeny` |
+| 3 | 両ロール | **実プローブ。** 長期キーで MFA なしの AssumeRole が `AccessDenied` になる |
 | 4 | `shor-braket-operator` | 長期キーから AQT は `explicitDeny`。両ロールへの assume は `allowed` |
 | 5 | `shor-braket-monitor` | 実行も assume も `implicitDeny`（`.env` に `IAM_MONITOR_PRINCIPAL` があるときのみ） |
 | 6 | 両ロール・両ユーザー | `SearchSpendingLimits` は `allowed`、Create / Update / Delete は `explicitDeny`（§6.2。8 項目） |
@@ -413,9 +456,10 @@ ADR-0004 の apply 直後に測定した。節 1 と節 2 が鏡像になって�
 対象は両ロールと両ユーザー（AQT ロールは 2026-09-15 に追加。無いと節 2 が `AccessDenied` になる）。
 `make iam-verify` は `.env` の `AWS_ACCOUNT_ID` で ARN を組むので、placeholder のままだと全項目が error になる。
 
-> **注意**: `simulate-principal-policy` は既定で MFA なしのコンテキストで評価する。
-> MFA 必須の Deny があるため、ロールを対象にすると全部 `explicitDeny` になる。
-> スクリプトは MFA ありのコンテキストキーを明示的に渡している。
+> **注意**: シミュレータは与えた文脈の下での答えしか返さない。2026-09-22 まではロールに
+> MFA ありの文脈を渡していて、それが実物と違ったために 22/22 のまま実機投入が拒否された。
+> 今はロールに `aws:MultiFactorAuthPresent=false` を渡している（実物のロールセッションがそう評価されるため）。
+> ユーザーの長期キーはこのキー自体を持たないので、節 4 の長期キーの行は文脈を渡さずに評価する。
 
 AWS 側の呼び出しが失敗した行は `error` として FAIL 扱いになり、残りの評価は続行する。
 資格情報やプロファイルの問題と、ポリシーの問題を切り分けやすくするため。
@@ -426,8 +470,8 @@ AWS 側の呼び出しが失敗した行は `error` として FAIL 扱いにな�
 aws iam simulate-principal-policy \
   --policy-source-arn "arn:aws:iam::$AWS_ACCOUNT_ID:role/ShorBraketExecutionRole" \
   --action-names braket:CreateQuantumTask \
-  --resource-arns "arn:aws:braket:eu-north-1::device/qpu/iqm/Garnet" \
-  --context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=true,ContextKeyType=boolean
+  --resource-arns "arn:aws:braket:eu-north-1:$AWS_ACCOUNT_ID:device/qpu/iqm/Garnet" \
+  --context-entries ContextKeyName=aws:MultiFactorAuthPresent,ContextKeyValues=false,ContextKeyType=boolean
 ```
 
 ### 7.1 いつ測り直すか
@@ -469,7 +513,7 @@ aws iam simulate-custom-policy \
 |---|---|---|
 | 高額デバイスの使用 | ✅ Deny | — |
 | Hybrid Jobs の起動 | ✅ Deny | — |
-| MFA なしでの投入 | ✅ Deny (`BoolIfExists`) | — |
+| MFA なしでの投入 | ✅ 信頼ポリシー（ロールに入れない）+ ユーザー側 Deny (`BoolIfExists`) | — |
 | 読み取り作業中の誤投入 | ✅ プロファイル分割 | — |
 | **ショット数の桁間違い** | ❌ **条件キーが存在しない** | クライアント `--max-cost` + AWS Budgets |
 | 同じタスクの連続投入 | ❌ | クライアント側 + AWS Budgets |

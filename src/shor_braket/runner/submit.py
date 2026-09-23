@@ -122,11 +122,17 @@ class SubmissionResult:
 class SubmissionProgram:
     """The verbatim circuit and the physical qubits each register ended up on.
 
-    The layout is not decoration. A device returns one bit per measured qubit in ascending
-    physical order, so without knowing which physical qubit carries which register bit there is
-    no way to turn a result into a count/work joint distribution. The router picks that mapping
-    from the calibration, which changes, so the mapping has to be recorded at submission time
-    rather than recomputed later from whatever snapshot happens to be on disk.
+    The layout is not decoration. A device returns one bit per measured qubit, so without
+    knowing which physical qubit carries which register bit there is no way to turn a result into
+    a count/work joint distribution. The router picks that mapping from the calibration, which
+    changes, so the mapping has to be recorded at submission time rather than recomputed later
+    from whatever snapshot happens to be on disk.
+
+    What the layout does *not* say is the order the device reports in. The first Garnet task
+    (2026-09-23) returned seven qubits in the order ``[19, 15, 10, 18, 14, 20, 16]``: not ascending,
+    and including qubit 10, a SWAP transit qubit outside both registers. The analysis therefore
+    reads the order from the result's own ``measuredQubits`` and marginalises anything that is not
+    a register qubit; ``measured`` here is only the set of register qubits.
     """
 
     circuit: Circuit
@@ -135,7 +141,8 @@ class SubmissionProgram:
     work_physical: tuple[int, ...]
     """Physical qubits of the work register, most significant first."""
     measured: tuple[int, ...]
-    """Every physical qubit the device will report, in the ascending order it reports them."""
+    """The register qubits, ascending. Not the device's reporting order, and not every qubit it
+    reports: transit qubits of the routing are measured too (see the class docstring)."""
 
     def to_dict(self) -> dict[str, Any]:
         """Serialize the layout."""

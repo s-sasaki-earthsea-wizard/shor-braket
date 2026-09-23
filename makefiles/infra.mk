@@ -105,7 +105,7 @@ iam-render:  ## IAM ポリシーのプレースホルダを .env の値で置換
 	done
 
 .PHONY: iam-verify
-iam-verify:  ## IAM ガードレールの効果をポリシーシミュレータで実測する (課金なし。22 項目、Spending Limit 含む)
+iam-verify:  ## IAM ガードレールの効果を実測する (課金なし。シミュレータ 24 項目 + MFA なし AssumeRole の実プローブ 2 項目)
 	$(call require_env,ACCOUNT_ID,AWS_ACCOUNT_ID,iam-verify)
 	@ACCOUNT_ID="$(ACCOUNT_ID)" \
 		EXEC_PRINCIPAL="$(if $(PRINCIPAL),$(PRINCIPAL),role/ShorBraketExecutionRole)" \

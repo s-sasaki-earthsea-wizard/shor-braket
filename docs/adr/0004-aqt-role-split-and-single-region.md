@@ -194,3 +194,12 @@ AWS 経路の確認は Garnet に 10 ショット（0.3145 USD）を投げて行
 
 将来 SV1 / DM1 が必要になったら、eu-west-2 のバケットと IAM をそのとき作る。
 verbatim を要さない用途（論理回路の大きな t での検証など）であれば意味がある。
+
+## 追記（2026-09-23）: ガードレールから MFA の Deny を外した
+
+「ガードレールは全プリンシパル共通の内容（予算破壊デバイス、MFA なしのタスク作成、Hybrid Jobs、ノートブック）」のうち、
+**MFA なしのタスク作成の Deny はロールに付けてはいけなかった**。ロールのセッションは MFA 付きで assume しても
+`aws:MultiFactorAuthPresent` を偽として持つので、両ロールとも一切タスクを作れなかった。
+この Deny はユーザー専用の `shor-braket-user-guardrail` に移した。上の表の両ユーザーには
+`user-guardrail` が加わり、両ロールの `guardrail` は MFA の条件を持たない。ロールの分割（本 ADR の決定）には影響しない。
+詳細は ADR-0002 の追記と `infra/iam/README.md` §4.4。
