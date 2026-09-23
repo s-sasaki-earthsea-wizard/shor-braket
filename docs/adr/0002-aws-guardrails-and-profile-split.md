@@ -140,3 +140,13 @@ gitignore 対象の `rendered/` に出力する。
 
 IAM部分は実装済み。S3 / Budgets / Spending Limitと3機限定への改訂はPhase 3の#3で実装する。
 ローカルシミュレータは無料でAWS認証も不要なため、本ADRのAWS設定を必要としない。
+
+## 追記（2026-09-23）: MFA の Deny はユーザーにだけ付ける
+
+上の「MFA 判定には `BoolIfExists` を使う」は長期キーについては正しい。ただし同じ Deny をロールにも付けていたのは誤りだった。
+**MFA 付きで assume したロールのセッションでも、セッション内では `aws:MultiFactorAuthPresent` が偽として評価される**
+（CloudTrail で `mfaAuthenticated: false`、CLI / boto3 とも）。Garnet への最初のタスクがこの Deny で拒否された（課金なし）。
+
+MFA は信頼ポリシーだけで強制する（MFA なしの assume が `AccessDenied` になることを実測済み）。`DenyTaskCreationWithoutMfa` は
+ユーザー専用の `shor-braket-user-guardrail-policy.json` に移し、実行ポリシーの Allow からも MFA 条件を外した。
+詳細は `infra/iam/README.md` §4.4。
