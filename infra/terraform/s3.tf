@@ -8,8 +8,9 @@
 resource "aws_s3_bucket" "results" {
   bucket = var.results_bucket_name
 
-  # force_destroy stays false: `make tf-destroy` refuses while results are still inside.
-  # Copy them out and empty the bucket first.
+  # False unless var.allow_teardown: `make tf-destroy` refuses while results are still inside.
+  # Copy them out first (the 2026-09-23 results went to the NAS), then flip the variable.
+  force_destroy = var.allow_teardown
 
   lifecycle {
     precondition {

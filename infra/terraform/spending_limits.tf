@@ -50,8 +50,9 @@ resource "awscc_braket_spending_limit" "qpu" {
   tags = local.awscc_tags
 
   lifecycle {
-    # A deleted limit is no limit at all. To tear the project down, remove this line first.
-    prevent_destroy = true
+    # A deleted limit is no limit at all, so this normally carries prevent_destroy = true.
+    # TEARDOWN IN PROGRESS (2026-09-23): the line is removed on chore/teardown-infra for the
+    # destroy and restored before that branch is merged. Never merge it without the line.
 
     precondition {
       condition     = local.spending_limit_total_usd <= local.qpu_spending_ceiling_usd

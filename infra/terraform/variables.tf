@@ -90,6 +90,12 @@ variable "spending_limits" {
 
 # ---- Cost allocation tags (two-stage apply, issue #4) ----
 
+variable "allow_teardown" {
+  description = "Set true only to tear the project down, after the results have been copied out. It lets destroy empty the results bucket and delete the IAM users together with the access keys and MFA devices that were issued outside Terraform. Apply once with it true, then destroy. The spending limits additionally carry prevent_destroy, which has to be removed from spending_limits.tf by hand because lifecycle arguments cannot be variables."
+  type        = bool
+  default     = false
+}
+
 variable "active_cost_allocation_tags" {
   description = "Tag keys to activate for cost allocation. Leave empty on the first apply: a key can only be activated about 24 hours after a resource carrying it first appears in the billing records. Stage 2 (a day after this infrastructure exists) adds project; stage 3 (a day after the first quantum task) adds oracle and campaign."
   type        = list(string)

@@ -60,6 +60,10 @@ locals {
 resource "aws_iam_user" "monitor" {
   name = var.monitor_user_name
 
+  # Access keys and MFA devices are issued by infra/iam/issue-user-credentials.sh, outside
+  # Terraform, so deleting the user needs force_destroy. Off unless tearing down.
+  force_destroy = var.allow_teardown
+
   lifecycle {
     precondition {
       condition     = local.account_guard_ok
@@ -74,6 +78,8 @@ resource "aws_iam_user" "monitor" {
 
 resource "aws_iam_user" "operator" {
   name = var.operator_user_name
+
+  force_destroy = var.allow_teardown
 
   lifecycle {
     precondition {
