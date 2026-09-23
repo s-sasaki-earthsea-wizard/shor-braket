@@ -73,18 +73,18 @@ device-info:  ## 保存済みスナップショットからデバイスの校正
 # `local` container does not receive BRAKET_CAMPAIGN, and a dry run that shows different tags
 # from the paid run is not a dry run of that run.
 .PHONY: preflight
-preflight:  ## 投入ゲートを最後まで回す (無料・オフライン・タスクは作らない。DEVICE / ORACLE / SHOTS / BRAKET_CAMPAIGN)
+preflight:  ## 投入ゲートを最後まで回す (無料・オフライン・タスクは作らない。DEVICE / ORACLE / SHOTS / N15_T / BRAKET_CAMPAIGN)
 	$(call require_env_file,make preflight)
 	$(LOCAL_RUN) shor-braket submit-qpu --device "$(DEVICE)" --oracle "$(ORACLE)" \
-		--shots "$(SHOTS)" --campaign "$(BRAKET_CAMPAIGN)" --no-execute
+		--shots "$(SHOTS)" --count-qubits "$(N15_T)" --campaign "$(BRAKET_CAMPAIGN)" --no-execute
 
 .PHONY: submit-qpu
-submit-qpu:  ## ⚠️ 課金対象: 実機 QPU に量子タスクを投入する (要 validated レコード + MFA。DEVICE / ORACLE / SHOTS / BRAKET_CAMPAIGN)
+submit-qpu:  ## ⚠️ 課金対象: 実機 QPU に量子タスクを投入する (要 validated レコード + MFA。DEVICE / ORACLE / SHOTS / N15_T / BRAKET_CAMPAIGN)
 	$(call require_env_file,make submit-qpu)
 	$(require_exec_profile)
 	$(require_home)
 	$(AWS_RUN) shor-braket submit-qpu --device "$(DEVICE)" --oracle "$(ORACLE)" \
-		--shots "$(SHOTS)" --campaign "$(BRAKET_CAMPAIGN)" --execute
+		--shots "$(SHOTS)" --count-qubits "$(N15_T)" --campaign "$(BRAKET_CAMPAIGN)" --execute
 
 .PHONY: task-status
 task-status:  ## 投入済みタスクの状態を確認する (読み取りのみ・課金なし・MFA 不要。TASK_ARN で 1 件指定)
