@@ -105,9 +105,12 @@ resource "aws_iam_policy" "assume_roles" {
   policy      = local.rendered.assume_roles
 }
 
+# Roles only; MFA is enforced by the trust policies, not here (see the header of this file).
+# The description is left as it was on purpose: IAM cannot change a managed policy's
+# description, so editing it would make Terraform replace the policy and briefly detach it.
 resource "aws_iam_policy" "execute" {
   name        = "shor-braket-execute"
-  description = "Create and manage Braket quantum tasks, write results, log usage. Roles only; MFA is enforced by the trust policies."
+  description = "Create and manage Braket quantum tasks, write results, log usage."
   policy      = local.rendered.execute
 
   lifecycle {
@@ -121,9 +124,12 @@ resource "aws_iam_policy" "execute" {
   }
 }
 
+# Since 2026-09-23 this no longer holds the MFA deny (moved to user_guardrail below). The
+# description still mentions it because changing a description forces a replacement, which
+# would leave every principal without the guardrail between the destroy and the create.
 resource "aws_iam_policy" "guardrail" {
   name        = "shor-braket-guardrail"
-  description = "Deny-only guardrail shared by every principal: budget-breaking devices, spending limit changes, hybrid jobs, notebooks."
+  description = "Deny-only guardrail shared by every principal: budget-breaking devices, MFA-less task creation, hybrid jobs, notebooks."
   policy      = local.rendered.guardrail
 }
 
