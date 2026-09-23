@@ -348,6 +348,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 経路確認時の Garnet の Limit | **5 USD**（10 ショット 0.3145 USD、再試行の余裕込み。stage 2 の apply で上げる） | issue #17 |
 | 本測定の構成 | Garnet・generic-constant・**3000 shots**（4.65 USD、λ の標準誤差 ≈ 0.011）。Garnet の Limit を **10 USD** に上げる（2026-09-23） | Syota さん判断 |
 | 本測定とタグ有効化の待ち時間 | 今回は**待たない**。投入時の見積りと Budget で確認する。「有効化から 24 時間後以降」の原則を本測定 1 回について外した（2026-09-23） | Syota さん判断 |
+| 追加の実機実行 | **行わない**（2026-09-23）。減衰モデルが t = 3 の実測を説明できるようになるまで。Emerald は 5.10 USD で λ 0.19〜0.34 の予測、IBEX は 70.80 USD で予測が Garnet 以下 | Wiki §9 |
 | t = 2 の λ の読み方 | 乗算ネットワークの忠実度（`orbit_mass` の言い換え）。干渉・コヒーレンスの証拠として書かない（2026-09-23） | `analysis/distribution.py` |
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
@@ -364,4 +365,4 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
 | 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
-| 5 | 実機 QPU 実行と結果分析 | 低 | 🚧 **2026-09-23 に Garnet で経路確認・t = 2 本測定・t = 3**（各 3000 shots）。t = 2 は λ 0.272（予測 0.564、主因は待機 T1/T2）。t = 3 は待機 qubit の可視度 0.087（予測 0.25〜0.42 も外れ）。累計 9.61 USD。次はルータに待機 T2 の項を足す |
+| 5 | 実機 QPU 実行と結果分析 | 低 | ✅ **2026-09-23 に Garnet で 3 タスク、ここで区切り**（経路確認、t = 2 と t = 3 を各 3000 shots、累計 9.61 USD）。t = 2 は λ 0.272（予測 0.564）、t = 3 は待機 qubit の可視度 0.087（予測 0.25〜0.42 も外れ）。Emerald / IBEX は投げない。続きはオフライン（ルータの待機 T2 項、spectator モデル、N = 21 の見積り）。Wiki「実機で最初の 3000 ショット」§9 |
