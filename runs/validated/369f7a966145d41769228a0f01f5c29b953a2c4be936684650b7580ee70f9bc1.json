@@ -1,8 +1,8 @@
 {
-  "artifact": "runs/raw/n15-emulation-20260918T170232833011Z/result.json",
+  "artifact": "runs/raw/n15-emulation-20260923T064512774937Z/result.json",
   "circuit": {
     "canonical_form_version": 1,
-    "error_budget": 0.7795051539877099,
+    "error_budget": 0.6874098563400715,
     "gate_family": "prx-cz",
     "instruction_count": 469,
     "native_depth": 284,
@@ -53,12 +53,12 @@
     "class": "local-emulator-n15",
     "ideal_check_tvd": 1.505739977147869e-15,
     "metrics": {
-      "exact_tvd": 0.358998420373171,
-      "ideal_support_mass_exact": 0.6410015796268373,
-      "ideal_support_mass_sampled": 0.6393,
-      "sampled_tvd": 0.3607,
-      "signal_fraction_exact": 0.5213354395024388,
-      "signal_fraction_sampled": 0.5190666666666666
+      "exact_tvd": 0.3273730395725186,
+      "ideal_support_mass_exact": 0.6726269604274795,
+      "ideal_support_mass_sampled": 0.6695,
+      "sampled_tvd": 0.3305,
+      "signal_fraction_exact": 0.5635026139033086,
+      "signal_fraction_sampled": 0.5593333333333332
     },
     "shots": 20000,
     "validation": {
@@ -71,9 +71,9 @@
       "pass_line": 0.5,
       "passed": true,
       "signal_detected": true,
-      "signal_fraction_exact": 0.5213354395024388,
-      "signal_fraction_sampled": 0.5190666666666667,
-      "standard_error": 0.004527403081973889
+      "signal_fraction_exact": 0.5635026139033086,
+      "signal_fraction_sampled": 0.5593333333333333,
+      "standard_error": 0.00443490949425377
     }
   },
   "environment": {
@@ -83,9 +83,9 @@
     "networkx": "3.6.1",
     "numpy": "2.5.3"
   },
-  "expires_at": "2026-10-18T17:02:58.423734+00:00",
-  "git_commit": "1e6ed4d5fb704b7fdbd1217cea736b18f1e634c7",
-  "issued_at": "2026-09-18T17:02:58.423734+00:00",
+  "expires_at": "2026-10-23T06:45:37.402804+00:00",
+  "git_commit": "72d2a300f69393b8e3b1f26d4032c309fb18b624",
+  "issued_at": "2026-09-23T06:45:37.402804+00:00",
   "notes": {
     "claim": "Observation of period-4 signal survival under calibration noise; not a factoring claim. The oracle is the N = 15 swap network and t = 2 uses r <= 4.",
     "t_rationale": "t = 2 represents the phases s/4 exactly and avoids identity multipliers; it uses the knowledge that r <= 4."
@@ -101,8 +101,8 @@
   },
   "schema_version": 1,
   "snapshot": {
-    "calibration_updated_at": "2026-09-18T16:29:04.300170+00:00",
-    "capabilities_sha256": "sha256:2965d958192df647b4938ec99e992a143514d426bf77b47bc304938072bab24e",
-    "fetched_at": "2026-09-18T17:01:32.409700+00:00"
+    "calibration_updated_at": "2026-09-23T02:29:45.780291+00:00",
+    "capabilities_sha256": "sha256:e20d07b6950c24e8d128f02a097c089a02a9d32f47ce37b168be0545f85d0fef",
+    "fetched_at": "2026-09-23T06:44:53.308918+00:00"
   }
 }

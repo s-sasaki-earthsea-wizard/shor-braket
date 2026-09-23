@@ -1,8 +1,8 @@
 {
-  "artifact": "runs/raw/n15-emulation-20260914T121731680422Z/result.json",
+  "artifact": "runs/raw/n15-emulation-20260923T064512774937Z/result.json",
   "circuit": {
     "canonical_form_version": 1,
-    "error_budget": 0.3961226645823088,
+    "error_budget": 0.3908191436323155,
     "gate_family": "prx-cz",
     "instruction_count": 484,
     "native_depth": 296,
@@ -52,14 +52,14 @@
     "class": "local-emulator-n15",
     "ideal_check_tvd": 2.768618667658985e-15,
     "metrics": {
-      "exact_tvd": 0.20459898001567656,
-      "ideal_support_mass_exact": 0.7954010199843193,
-      "ideal_support_mass_sampled": 0.7955000000000001,
-      "sampled_tvd": 0.208,
-      "signal_fraction_exact": 0.7272013599790978,
-      "signal_fraction_sampled": 0.7226666666666667
+      "exact_tvd": 0.20331090184431386,
+      "ideal_support_mass_exact": 0.7966890981556884,
+      "ideal_support_mass_sampled": 0.7977000000000001,
+      "sampled_tvd": 0.20229999999999998,
+      "signal_fraction_exact": 0.7289187975409148,
+      "signal_fraction_sampled": 0.7302666666666666
     },
-    "shots": 2000,
+    "shots": 20000,
     "validation": {
       "accepted": true,
       "error_type": null,
@@ -70,9 +70,9 @@
       "pass_line": 0.5,
       "passed": true,
       "signal_detected": true,
-      "signal_fraction_exact": 0.7272013599790978,
-      "signal_fraction_sampled": 0.7273333333333335,
-      "standard_error": 0.012025149571719353
+      "signal_fraction_exact": 0.7289187975409148,
+      "signal_fraction_sampled": 0.7302666666666667,
+      "standard_error": 0.0037874026280112685
     }
   },
   "environment": {
@@ -82,9 +82,9 @@
     "networkx": "3.6.1",
     "numpy": "2.5.3"
   },
-  "expires_at": "2026-10-14T12:17:56.853453+00:00",
-  "git_commit": "47368fc8acc56e09b759bc089f70a2f52b7124fa",
-  "issued_at": "2026-09-14T12:17:56.853453+00:00",
+  "expires_at": "2026-10-23T06:45:37.404575+00:00",
+  "git_commit": "72d2a300f69393b8e3b1f26d4032c309fb18b624",
+  "issued_at": "2026-09-23T06:45:37.404575+00:00",
   "notes": {
     "claim": "Observation of period-4 signal survival under calibration noise; not a factoring claim. The oracle is the N = 15 swap network and t = 2 uses r <= 4.",
     "t_rationale": "t = 2 represents the phases s/4 exactly and avoids identity multipliers; it uses the knowledge that r <= 4."
@@ -100,8 +100,8 @@
   },
   "schema_version": 1,
   "snapshot": {
-    "calibration_updated_at": "2026-09-13T05:12:49.375710+00:00",
-    "capabilities_sha256": "sha256:a46149e908dbb306dcf3650b73c8d897cc1e2b88f7f126f0c785c770c9cac1ce",
-    "fetched_at": "2026-09-13T23:33:32.154068+00:00"
+    "calibration_updated_at": "2026-09-23T05:14:36.074786+00:00",
+    "capabilities_sha256": "sha256:ceee7a681637a0042b1e3c01e52f2462cc92dc956ebff03e7a5a6a75e5dbd381",
+    "fetched_at": "2026-09-23T06:44:56.780599+00:00"
   }
 }
