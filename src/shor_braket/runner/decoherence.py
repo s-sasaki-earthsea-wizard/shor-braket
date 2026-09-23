@@ -19,11 +19,18 @@ This module adds two things the calibration snapshot already contains, and one i
 * **gate durations**, which the snapshot does not publish. They are an assumption, so the study
   runs a small set of named scenarios and reports the spread instead of one tuned number.
 
-Two scenarios bracket the measurement: Ramsey ``T2`` with 20 / 40 ns gates, and echo ``T2`` with
-40 / 80 ns gates. Choosing gate times and a T2 flavour from a small grid is two knobs, so
-agreement with one run is suggestive, not proof. What the study does establish is the direction
-and the order of magnitude: idle dephasing over a few hundred layers is the missing term, and
-readout asymmetry is not.
+Two scenarios bracketed the t = 2 measurement: Ramsey ``T2`` with 20 / 40 ns gates, and echo
+``T2`` with 40 / 80 ns gates. Choosing gate times and a T2 flavour from a small grid is two knobs,
+so agreement with one run is suggestive, not proof. What the study does establish is the
+direction and the order of magnitude: idle dephasing over a few hundred layers is the missing
+term, and readout asymmetry is not.
+
+The t = 3 run (2026-09-23, 3000 shots) then showed the model's limit. Its idle count qubit came
+back with a low-bit visibility of 0.087 +- 0.018 against 0.25 from the lightest scenario, while
+the orbit mass (0.424) matched that same scenario. No uniform choice of gate times fits both:
+the idle qubit, which the router had parked on the physical qubit with the shortest Ramsey T2 in
+the program, lost phase faster than its isolated T2 predicts. Neighbouring gates acting on an
+idle spectator is the obvious candidate, and it is not in this model.
 
 Only IQM snapshots carry the per-qubit T1 / T2 / readout-error fields this reads.
 """
@@ -72,9 +79,14 @@ class DecayScenario:
     """``T2`` (Ramsey, includes slow noise) or ``T2_echo`` (with a refocusing pulse)."""
 
 
+# Four named assumptions. The first two bracketed the t = 2 measurement; the heavier two were
+# needed to reach the t = 3 low-bit visibility (0.087), which no single scenario reproduces
+# together with the orbit mass: the idle count qubit dephased faster than its Ramsey T2 says.
 SCENARIOS: tuple[DecayScenario, ...] = (
     DecayScenario("ramsey-20-40ns", 20e-9, 40e-9, "T2"),
     DecayScenario("echo-40-80ns", 40e-9, 80e-9, "T2_echo"),
+    DecayScenario("ramsey-40-80ns", 40e-9, 80e-9, "T2"),
+    DecayScenario("echo-80-160ns", 80e-9, 160e-9, "T2_echo"),
 )
 
 
