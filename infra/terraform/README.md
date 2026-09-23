@@ -1,7 +1,8 @@
 # infra/terraform
 
-AWS リソース定義。**IAM プリンシパルは 2026-09-13 に初回 apply、2026-09-15 に ADR-0004 のロール分割を反映済み。
-Phase 3（S3 / Budgets + SNS / Braket Spending Limit）も 2026-09-16 に apply 済み。コスト配分タグの有効化だけが残っている（下記の 2 段 apply）。**
+AWS リソース定義。**2026-09-23 に撤収済み**（結果を NAS に写してから destroy。末尾の「撤収の手順」）。
+それまでの経緯: IAM プリンシパルは 2026-09-13 に初回 apply、2026-09-15 に ADR-0004 のロール分割を反映、
+Phase 3（S3 / Budgets + SNS / Braket Spending Limit）は 2026-09-16 に apply、コスト配分タグ `project` は 2026-09-18 に有効化。
 
 ---
 
@@ -36,6 +37,9 @@ awscc provider には `default_tags` が無いので、Spending Limit には同�
 - **SNS サブスクリプションの確認** — メールのリンクを**押さず**、リンクのトークンを `confirm-subscription --authenticate-on-unsubscribe true` に渡して確認する（下記）。リンクで確認すると、メール基盤のリンク巡回に解除されて確認と解除が自走する（2026-09-17 実測）
 
 ---
+
+> **2026-09-23: インフラは撤収済み。** 結果を NAS に保存してから `terraform destroy` した（38 リソース）。
+> このディレクトリのコードで同じ構成を作り直せる。手順は末尾の「撤収の手順」。
 
 ## 使い方
 
@@ -331,3 +335,38 @@ aws sns list-subscriptions-by-topic --topic-arn "$topic" --profile shor-braket-r
 そのまま作成できた。段 1 をフィルタ無しで作る回避策は要らなかった。ただし**集計されるのはタグ有効化後のデータだけ**
 なので、有効化前の `CalculatedSpend` は 0 のまま。`shor-braket-ro` で `describe-budget` が通ることも確認した
 （`budgets:ViewBudget`、無料）。
+
+---
+
+## 撤収の手順（2026-09-23 に実施）
+
+実験を終えて、結果を NAS に写してからインフラを畳んだ。destroy を止めるものは 3 つあり、どれも設計どおりの保護だった。
+
+| 保護 | 外し方 |
+|---|---|
+| Spending Limit の `prevent_destroy` | lifecycle の引数は変数にできないので、ブランチ上で行を外して destroy し、**マージ前に戻す** |
+| 結果バケットは中身があると消えない | `var.allow_teardown = true` で `force_destroy` を有効にする（既定 false） |
+| IAM ユーザーのアクセスキーと MFA は Terraform 管理外（`issue-user-credentials.sh` が発行） | 同じく `var.allow_teardown` で `force_destroy` を有効にする |
+
+手順:
+
+1. 結果を写す（S3 の `tasks/`、`runs/raw/`、校正スナップショット、validated レコード、CloudTrail の当日分）。チェックサムで確認する
+2. ブランチで `spending_limits.tf` の `prevent_destroy = true` を外し、tfvars に `allow_teardown = true` を足す
+3. `make tf-plan`（`force_destroy` の state 更新だけで 0 add / 3 change / 0 destroy）→ `make tf-apply`
+4. `make tf-destroy`
+5. `prevent_destroy` を戻し、tfvars から `allow_teardown` を消してからブランチをマージする
+
+実測（2026-09-23）:
+
+- destroy は 38 リソース。直後に admin の読み取りで、ユーザー・ロール・`shor-braket-*` ポリシー・バケット・Budget・SNS トピック・
+  Spending Limit がすべて存在しないことを確認した
+- operator の仮想 MFA デバイスは `force_destroy` で割り当てごと削除され、孤児は残らなかった
+- コスト配分タグ `project` は `Inactive` に戻った（キー自体は消せない）
+
+Terraform の外に残るもの:
+
+- `AWSServiceRoleForAmazonBraket`（最初のタスクで Braket が自動作成したサービスリンクロール）。無害・無料で、作り直すときにそのまま使われる
+- bootstrap の `admin-base` ユーザーと `AdminRole`（作り直すのに要る）
+- CloudTrail の履歴（90 日で自動的に消える。当日分は NAS に写した）
+
+作り直すときは、この README の「使い方」から始めて、`issue-user-credentials.sh` でキーと MFA を発行し直す。
