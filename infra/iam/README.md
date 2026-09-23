@@ -380,7 +380,7 @@ make iam-verify     # .env の AWS_ACCOUNT_ID を使う
 | 時点 | 結果 |
 |---|---|
 | 修正前のポリシーに対して（2026-09-23） | **22/26。** 失敗はロールの `allowed` 4 行（Garnet / Emerald / Cepheus / IBEX）だけで、実物の事故をそのまま再現した |
-| 修正後の apply 後 | （未測定。apply 後に記録する） |
+| 修正後の apply 後（2026-09-23 07:04 UTC） | **26/26。** ロールの `allowed` 4 行が通り、Deny 側と MFA なし assume の拒否は維持。直後の `tf-plan` は No changes（3 add / 2 change / 0 destroy を Syota さんが apply） |
 
 ### 旧版の実測結果（2026-09-15 に節 1〜5 の **14/14**、2026-09-16 に節 6 を加えて **22/22**。**前提の文脈が誤っていた**）
 
