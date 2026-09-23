@@ -116,7 +116,12 @@ program であることを確かめる。`disable_qubit_rewiring` は `False`（
 （エミュレータ 0.83、減衰モデル 0.25〜0.42 の事前登録に対して）。U^4 = I を制御する待機 qubit は、ルータの初期配置で
 **使った 8 qubit のうち Ramsey T2 最短（5.6 µs）の物理 10** に置かれ、318 スライス中 279 で待機していた。
 減衰モデルはその T2 でも可視度を過大評価し、ゲート時間を一様に伸ばすと今度は軌道質量（実機 0.424）が合わない。
-待機 qubit の位相は孤立 Ramsey T2 より速く失われる（spectator 誤りが候補、未分離）。Garnet の累計は 9.6145 USD。デバイスは測定 qubit を**昇順でなく**、
+待機 qubit の位相は孤立 Ramsey T2 より速く失われる（spectator 誤りが候補、未分離）。Garnet の累計は 9.6145 USD。
+**2026-09-23: 実機の段階を区切り、インフラを撤収した。** 結果（S3 の 3 オブジェクト、runs/raw、回路の OpenQASM、校正、
+validated レコード、CloudTrail の当日分）を NAS に写してチェックサムで確認し、Syota さんが `tf-destroy`（38 リソース）。
+admin の読み取りで全リソースの不在を確認済み。Terraform の外に残るのはサービスリンクロール `AWSServiceRoleForAmazonBraket` と
+bootstrap の admin だけ。撤収のために `var.allow_teardown`（既定 false、バケットと IAM ユーザーの force_destroy）を足した。
+**`prevent_destroy` は main では常に true**（撤収時はブランチ上でだけ外す）。手順は `infra/terraform/README.md` 末尾デバイスは測定 qubit を**昇順でなく**、
 SWAP の中継 qubit も含めて返した（`[19, 15, 10, 18, 14, 20, 16]`）。解析は結果の `measuredQubits` を使うので影響なし。
 **`make report` も実装した**（`runner/report.py`、`visualization/qpu.py`）。結果 JSON を投入記録の
 `register_layout` で count + work の同時分布に直し、理想分布および**エミュレーションが予測した λ** と比較する。
@@ -345,6 +350,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | Spending Limit の期間 | 初回 apply は未設定、実験ごとに両端を設定（2026-09-16） | `infra/terraform/README.md` |
 | Budget 通知 | SNS トピック + email サブスクリプション。確認クリックは手作業（2026-09-16） | `infra/terraform/budget.tf`、issue #4 |
 | `.terraform.lock.hcl` | コミットする（2026-09-16） | `infra/terraform/README.md` |
+| インフラの撤収 | 結果を NAS に写して destroy（2026-09-23 実施）。`allow_teardown` で force_destroy を切り替え、`prevent_destroy` はブランチ上でだけ外す | `infra/terraform/README.md` |
 | 経路確認時の Garnet の Limit | **5 USD**（10 ショット 0.3145 USD、再試行の余裕込み。stage 2 の apply で上げる） | issue #17 |
 | 本測定の構成 | Garnet・generic-constant・**3000 shots**（4.65 USD、λ の標準誤差 ≈ 0.011）。Garnet の Limit を **10 USD** に上げる（2026-09-23） | Syota さん判断 |
 | 本測定とタグ有効化の待ち時間 | 今回は**待たない**。投入時の見積りと Budget で確認する。「有効化から 24 時間後以降」の原則を本測定 1 回について外した（2026-09-23） | Syota さん判断 |
@@ -363,6 +369,6 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 0 | プロジェクト設計・ドキュメント | — | ✅ 2026-09-07 完了 |
 | 1 | Shor 実装（古典前処理 + 位数発見回路） | **高** | ✅ 2026-09-13 N=15 行列参照回路（`local-reference`、QPU 投入不可） |
 | 2 | ローカルシミュレータ検証と実行ゲート | **高** | ✅ 2026-09-14 完了。同時分布検証・可視化・LocalEmulator スパイク・N=15 QPU 互換回路のエミュレーション（3 機）・反復 QPE の比較と TVD 標本床の解析・validated レコードと投入ゲート |
-| 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
+| 3 | Terraform による AWS リソース定義 | **高** | ✅ **2026-09-23 撤収済み**（destroy 38 リソース。コードから再作成できる）。**2026-09-16 apply 済み**（11 作成 / 3 in-place）。`iam-verify` 22/22、`search-spending-limits` が 3 機 0 USD、`describe-budget` が RO で読める。SNS は `--authenticate-on-unsubscribe` で決着。**2026-09-18 に stage 2 を apply**（`project` タグ有効化 + Garnet 5 USD / 2026-09-19〜09-28）。残るは stage 3 |
 | 4 | ~~SV1 実行~~ | — | ❌ 廃止（ADR-0004）。AWS 経路の確認は Garnet 10 ショットで行う |
 | 5 | 実機 QPU 実行と結果分析 | 低 | ✅ **2026-09-23 に Garnet で 3 タスク、ここで区切り**（経路確認、t = 2 と t = 3 を各 3000 shots、累計 9.61 USD）。t = 2 は λ 0.272（予測 0.564）、t = 3 は待機 qubit の可視度 0.087（予測 0.25〜0.42 も外れ）。Emerald / IBEX は投げない。続きはオフライン（ルータの待機 T2 項、spectator モデル、N = 21 の見積り）。Wiki「実機で最初の 3000 ショット」§9 |
