@@ -9,17 +9,17 @@ graph, lowered to native gates, wrapped in a verbatim box and validated by the c
 the deferred-measurement principle and reading the ``Probability`` result type on the
 density-matrix backend; finite-shot samples are multinomial draws from that distribution.
 
-Two things about the SDK (1.127.0, default simulator 1.40.1) make that necessary. The emulator's
-noise model attaches nothing to ``measure_ff`` and ``cc_prx``, so a readout bit flip before each
-``measure_ff`` and a one-qubit depolarizing channel after each ``cc_prx`` are added here from the
-same calibration numbers. And the shot-by-shot ("branched") simulation the simulator uses for
-feed-forward circuits drops most noise channels (one-qubit depolarizing anywhere, bit flips after
-a ``measure_ff``), so ``LocalEmulator.run`` on such a circuit returns a nearly noise-free sample.
-Both SDK runs are still executed with a small shot count and recorded as diagnostics so the
-discrepancy stays visible. Devices without feed-forward are reported as rejected. The standard
-circuit of ``runner/n15.py`` is run for the same device and oracle so both methods sit in one
-table, and a Monte Carlo of finite-shot samples records what the TVD and signal-fraction
-estimators do at each shot count.
+Two things about the SDK (1.127.x, default simulator 1.40.1 to 1.40.2) make that necessary. The
+emulator's noise model attaches nothing to ``measure_ff`` and ``cc_prx``, so a readout bit flip
+before each ``measure_ff`` and a one-qubit depolarizing channel after each ``cc_prx`` are added
+here from the same calibration numbers. And the shot-by-shot ("branched") simulation the simulator
+uses for feed-forward circuits drops every noise channel placed after the first mid-circuit
+measurement (only the noise before it survives), so ``LocalEmulator.run`` on such a circuit returns
+a sample that misses most of the noise. Both SDK runs are still executed with a small shot count
+and recorded as diagnostics so the discrepancy stays visible. Devices without feed-forward are
+reported as rejected. The standard circuit of ``runner/n15.py`` is run for the same device and
+oracle so both methods sit in one table, and a Monte Carlo of finite-shot samples records what the
+TVD and signal-fraction estimators do at each shot count.
 
 None of this is a factoring claim: the oracle is the N = 15 swap network and ``t = 2`` uses
 ``r <= 4``. What is measured is how much of the period-4 signal survives on each method.
@@ -99,9 +99,9 @@ FEED_FORWARD_NOISE_NOTE = (
     "the same calibration. Idle errors while the classical controller decides are not modelled."
 )
 BRANCHED_SIMULATION_NOTE = (
-    "The simulator's shot-by-shot simulation of feed-forward circuits drops most noise channels "
-    "(one-qubit depolarizing anywhere, bit flips after a measure_ff; checked with minimal "
-    "circuits on amazon-braket-default-simulator 1.40.1). These counts are a diagnostic only; "
+    "The simulator's shot-by-shot simulation of feed-forward circuits drops every noise channel "
+    "placed after the first mid-circuit measurement (checked with minimal circuits on "
+    "amazon-braket-default-simulator 1.40.1 and 1.40.2). These counts are a diagnostic only; "
     "the metrics use the exact deferred-measurement distribution and multinomial samples of it."
 )
 

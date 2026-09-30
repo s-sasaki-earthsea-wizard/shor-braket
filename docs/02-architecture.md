@@ -166,8 +166,9 @@ work register (n)   |1> ──[U^(2^k)]─────────────�
   コピーして最終測定で読む。記録用 qubit はカプラ不要なので、ルータは核となる 5 qubit を配置した後に
   読み出し忠実度の高い空き qubit を割り当てる（`choose_layout(..., detached=...)`）
 - 厳密分布は deferred measurement 変換（`measure_ff` → 補助 qubit への CNOT、`cc_prx` → 補助 qubit を
-  制御とする 2 qubit ユニタリ）で `braket_dm` から解析的に求める。標本は feed-forward 回路そのものを
-  shot ごとに走らせて取る
+  制御とする 2 qubit ユニタリ）で `braket_dm` から解析的に求める。標本はその厳密分布からの多項サンプリングで作る。
+  feed-forward 回路そのものを shot ごとに走らせると、SDK の分岐実行が最初の中間測定より後のノイズを落とすので
+  （issue #14）、その結果は診断として記録するだけにする
 - SDK 1.127.0 のエミュレータのノイズモデルは `measure_ff` / `cc_prx` にノイズを付けない。同じ校正値から
   読み出し bit-flip（測定直前の状態反転）と 1 qubit depolarizing を手で足す
 - 開発者ガイドの制約のうち、フィードバックキーの一意性・`cc_prx` が `measure_ff` の後に来ること・制御元が
