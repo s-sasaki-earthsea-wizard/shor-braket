@@ -359,6 +359,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
+| SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
 
 ---
 
