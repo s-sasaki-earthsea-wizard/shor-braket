@@ -68,7 +68,7 @@ TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近�
 `analysis/distribution.py` の `noiseless_verdict` / `noisy_verdict` が最終形。残る未決はタグ集合、validated レコードの有効期限、
 `--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。**次は issue #8 の validated レコードと投入ゲート。**
 SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み。**2026-09-30 に両方とも記述を訂正した**（下の実装指針）。
-#14 は「分岐後のノイズが全部落ちる」、#15 は「制御修飾子のゲートが黙って落ちる／例外で落ちる」が正しい。
+#14 は「分岐後のノイズが全部落ちる」、#15 は「制御修飾子のゲートが黙って落ちる／例外で落ちる／先頭軸の制御なら範囲外アクセス」が正しい。
 upstream へは #15 を修正 PR、#14 を issue で出す（下書きまで作成済み、投稿は Syota さんの確認後）。
 
 **2026-09-14: validated レコードと投入ゲートを実装した**（`gate/circuit_hash.py`、`gate/record.py`、
@@ -243,6 +243,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 - **制御修飾子（`control=` / `ctrl @`）付きのゲートを使わない。** default-simulator 1.40.2 までは、制御が先頭以外の軸にあると
   `multiply_matrix` が非連続なビューを作る。small パス（sv 10 qubit 以下、dm 5 qubit 以下）では**例外なしにゲートが消える**ことがあり
   （4 qubit で `ctrl @ x q[2], q[0]` が無視される）、large パスでは numba の `TypingError` で落ちる。`braket_sv` / `braket_dm` とも。
+  制御が先頭軸でも、swap と汎用 2 qubit ゲートの large カーネルはループ回数を `1 << ndim` で出すので範囲外を読み書きする
+  （JIT ありでは黙って起きる）。`braket_dm` は dispatcher を `state.size` から作るので、2 qubit ゲートは常に large カーネルを使う。
   制御付きゲートは 2 qubit ユニタリで書く（`quantum/feedforward.py` の `_controlled`）。このリポジトリは制御修飾子を使っておらず、
   過去の結果に影響は無い（2026-09-30 確認、issue #15）
 - 実機の dynamic circuit 制約（キー一意、`cc_prx` は `measure_ff` の後、制御元は 1 qubit、同一 qubit グループ内、verbatim）のうち
@@ -368,7 +370,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
-| SDK バグの upstream 報告 | #15 は修正 PR（テストの追加はメンテナーに判断を仰ぐ）、#14 は issue（分岐実行を置き換える upstream PR #382 があるため）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
+| SDK バグの upstream 報告 | #15 は修正 PR（ユニットテストを含める。レビュアー 2 人の意見と CONTRIBUTING の "including unit tests" を受けて変更）、#14 は issue（分岐実行を置き換える upstream PR #382 があるため）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
 | SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
 
 ---
