@@ -89,8 +89,9 @@ def add_conditional_x(circuit: Circuit, qubit: int, feedback_key: int) -> Circui
 def _controlled(matrix: NDArray[np.complex128]) -> NDArray[np.complex128]:
     """Two-qubit unitary applying ``matrix`` to the second qubit when the first is ``|1>``.
 
-    Written as an explicit unitary rather than a control modifier: the density-matrix simulator's
-    large-circuit kernels reject the non-contiguous view a control on a trailing axis produces.
+    Written as an explicit unitary rather than a control modifier: up to default simulator 1.40.2,
+    a control on any axis but the first makes the simulator slice a non-contiguous view, which the
+    large-circuit kernels reject and the small-circuit kernels can silently leave unchanged.
     """
     controlled = np.eye(4, dtype=np.complex128)
     controlled[2:, 2:] = matrix

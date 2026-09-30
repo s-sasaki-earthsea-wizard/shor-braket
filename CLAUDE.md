@@ -67,7 +67,9 @@ TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近�
 数値化した。**issue #7 の主要な未決事項（反復 QPE・深さ予算・TVD 閾値・実機の合否・DM1）は決着済み**で、下の「決定事項」表と
 `analysis/distribution.py` の `noiseless_verdict` / `noisy_verdict` が最終形。残る未決はタグ集合、validated レコードの有効期限、
 `--yes` の運用、月次累計の取得元、IBEX の実行ウィンドウ運用。**次は issue #8 の validated レコードと投入ゲート。**
-SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み（upstream 報告は本題の実験の後）。
+SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み。**2026-09-30 に両方とも記述を訂正した**（下の実装指針）。
+#14 は「分岐後のノイズが全部落ちる」、#15 は「制御修飾子のゲートが黙って落ちる／例外で落ちる」が正しい。
+upstream へは #15 を修正 PR、#14 を issue で出す（下書きまで作成済み、投稿は Syota さんの確認後）。
 
 **2026-09-14: validated レコードと投入ゲートを実装した**（`gate/circuit_hash.py`、`gate/record.py`、
 `gate/preflight.py`、`gate/spending.py`、`runner/submit.py`、`make circuit` / `validate-n15` / `validated` /
@@ -231,11 +233,18 @@ Co-Authored-By: Claude <noreply@anthropic.com>
   忙しい qubit には足さない（RB 忠実度にゲート中の減衰が含まれるので二重計上になる）。ゲート時間は
   スナップショットに無いので `SCENARIOS` で仮定し、1 点に合わせ込まない
 - **feed-forward 回路（`measure_ff` / `cc_prx`）のノイズ付き実行に SDK の shot 毎シミュレーションを使わない。**
-  default-simulator 1.40.1 の分岐実行は 1 qubit depolarizing と測定後の bit-flip を落とす（`LocalEmulator.run` も同じ）。
+  default-simulator 1.40.1〜1.40.2 の分岐実行は、**最初の中間測定で分岐が始まった後のノイズを種類を問わず落とす**
+  （1q / 2q depolarizing、bit-flip、Kraus とも。分岐前のノイズは効く。`measure_ff` に限らず素の OpenQASM の `if` でも起きる。
+  `LocalEmulator.run` も同じ）。原因は `ProgramContext.add_noise_instruction` / `add_kraus_instruction` だけが分岐後も
+  各パスに命令を配らないこと。当初の「1 qubit depolarizing はどこでも落ちる」はビット列の読み違いだった（2026-09-30 訂正、issue #14）。
   厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
   多項サンプリングで作る。エミュレータのノイズモデルも `measure_ff` / `cc_prx` にノイズを付けないので、読み出し bit-flip と
   1q depolarizing を `runner/n15_iterative.py` で手で足す
-- `braket_dm` の large カーネルは制御 qubit が末尾軸にある制御付き 1 qubit ゲートで落ちる。制御付きゲートは 2 qubit ユニタリで書く
+- **制御修飾子（`control=` / `ctrl @`）付きのゲートを使わない。** default-simulator 1.40.2 までは、制御が先頭以外の軸にあると
+  `multiply_matrix` が非連続なビューを作る。small パス（sv 10 qubit 以下、dm 5 qubit 以下）では**例外なしにゲートが消える**ことがあり
+  （4 qubit で `ctrl @ x q[2], q[0]` が無視される）、large パスでは numba の `TypingError` で落ちる。`braket_sv` / `braket_dm` とも。
+  制御付きゲートは 2 qubit ユニタリで書く（`quantum/feedforward.py` の `_controlled`）。このリポジトリは制御修飾子を使っておらず、
+  過去の結果に影響は無い（2026-09-30 確認、issue #15）
 - 実機の dynamic circuit 制約（キー一意、`cc_prx` は `measure_ff` の後、制御元は 1 qubit、同一 qubit グループ内、verbatim）のうち
   グループはオフラインで検査できない。投入前にデバイスページで確認する
 
@@ -359,6 +368,8 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
+| SDK バグの upstream 報告 | #15 は修正 PR（テストの追加はメンテナーに判断を仰ぐ）、#14 は issue（分岐実行を置き換える upstream PR #382 があるため）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
+| SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
 
 ---
 
