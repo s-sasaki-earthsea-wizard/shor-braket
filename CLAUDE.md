@@ -71,7 +71,9 @@ SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み。**
 #14 は「分岐後のノイズが全部落ちる」、#15 は「制御修飾子のゲートが黙って落ちる／例外で落ちる／先頭軸の制御なら範囲外アクセス」が正しい。
 **2026-11-06: #14 を upstream の issue 422 として投稿した。** 調査の途中で `braket_sv` も分岐後のノイズを黙って無視することが分かり、一緒に報告した。
 修正とテスト 16 件はフォークの `fix/noise-after-branching` に未 push で用意してあり、PR はメンテナーの反応を見てから出す。
-**#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出たので、そこに追試のコメントを残す（未実施）。
+**#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出ていた。**2026-11-18 にそこへ追試のコメントを投稿した。**
+upstream の main（bfefc3c）で症状が続き、#415 の head（2260f3e）で直ることを、macOS と Docker の Linux arm64 / amd64 で確かめた。
+追試で 3 つ目の症状（`braket_dm` で制御状態が混在すると `controlled_matrix` が制御の順序を逆にする）も見つかり、#415 がこれも直している。
 
 **2026-09-14: validated レコードと投入ゲートを実装した**（`gate/circuit_hash.py`、`gate/record.py`、
 `gate/preflight.py`、`gate/spending.py`、`runner/submit.py`、`make circuit` / `validate-n15` / `validated` /
@@ -247,13 +249,15 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
   厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
   多項サンプリングで作る。エミュレータのノイズモデルも `measure_ff` / `cc_prx` にノイズを付けないので、読み出し bit-flip と
   1q depolarizing を `runner/n15_iterative.py` で手で足す
-- **制御修飾子（`control=` / `ctrl @`）付きのゲートを使わない。** default-simulator 1.40.2 までは、制御が先頭以外の軸にあると
+- **制御修飾子（`control=` / `ctrl @`）付きのゲートを使わない。** default-simulator 1.43.1（upstream の main bfefc3c、2026-11-18 確認）まで、制御が先頭以外の軸にあると
   `multiply_matrix` が非連続なビューを作る。small パス（sv 10 qubit 以下、dm 5 qubit 以下）では**例外なしにゲートが消える**ことがあり
   （4 qubit で `ctrl @ x q[2], q[0]` が無視される）、large パスでは numba の `TypingError` で落ちる。`braket_sv` / `braket_dm` とも。
   制御が先頭軸でも、swap と汎用 2 qubit ゲートの large カーネルはループ回数を `1 << ndim` で出すので範囲外を読み書きする
-  （JIT ありでは黙って起きる）。`braket_dm` は dispatcher を `state.size` から作るので、2 qubit ゲートは常に large カーネルを使う。
+  （JIT ありでは検査されずにヒープを壊し、Linux ではプロセスが毎回落ちる）。`braket_dm` は dispatcher を `state.size` から作るので、
+  2 qubit ゲートは常に large カーネルを使う。さらに `braket_dm` では、制御状態が混在する（`ctrl @ negctrl @`）と `controlled_matrix` が
+  制御の順序を逆にし、trace 0 の状態になる（3 qubit でも起きる）。
   制御付きゲートは 2 qubit ユニタリで書く（`quantum/feedforward.py` の `_controlled`）。このリポジトリは制御修飾子を使っておらず、
-  過去の結果に影響は無い（2026-09-30 確認、issue #15）
+  過去の結果に影響は無い（2026-09-30 確認、issue #15）。upstream PR #415 が 3 つとも直す（2026-11-18 に追試済み、未マージ）
 - 実機の dynamic circuit 制約（キー一意、`cc_prx` は `measure_ff` の後、制御元は 1 qubit、同一 qubit グループ内、verbatim）のうち
   グループはオフラインで検査できない。投入前にデバイスページで確認する
 
@@ -377,7 +381,7 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
-| SDK バグの upstream 報告 | #14 は issue で先に出してメンテナーの反応を見る（upstream の issue 422、2026-11-06 投稿）。修正とテストはフォークに未 push で用意。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
+| SDK バグの upstream 報告 | #14 は issue で先に出してメンテナーの反応を見る（upstream の issue 422、2026-11-06 投稿）。修正とテストはフォークに未 push で用意。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更、2026-11-18 投稿）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
 | upstream 向けコミットの署名 | Syota さんのみ。AI の利用は issue / PR の Disclosure に製品名なしで書く（2026-11-06。普段の署名ルールの例外） | 上の「コミットメッセージ」 |
 | SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
 
