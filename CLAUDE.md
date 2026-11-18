@@ -70,7 +70,9 @@ TVD の標本床（理想分布 1,000 shots で 0.049、20,000 で 0.011、近�
 SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み。**2026-09-30 に両方とも記述を訂正した**（下の実装指針）。
 #14 は「分岐後のノイズが全部落ちる」、#15 は「制御修飾子のゲートが黙って落ちる／例外で落ちる／先頭軸の制御なら範囲外アクセス」が正しい。
 **2026-11-06: #14 を upstream の issue 422 として投稿した。** 調査の途中で `braket_sv` も分岐後のノイズを黙って無視することが分かり、一緒に報告した。
-修正とテスト 16 件はフォークの `fix/noise-after-branching` に未 push で用意してあり、PR はメンテナーの反応を見てから出す。
+**2026-11-18: issue に 2 週間反応が無かったので、修正を upstream PR #433 として出した**（フォークの `fix/noise-after-branching`、f4edcca、3 コミット・テスト 21 件）。
+チームレビューで、issue に載せた修正案の `StateVectorSimulation.evolve` が、渡されたイテレータを検査の `any()` で使い切り、ゲートを掛けないまま成功する退行が見つかった。検査の前に `list()` でコピーする形に直した。
+Python 3.11〜3.13 の tox（2175 passed、カバレッジ 100%）と、`dependent-tests` の手順の Docker 再現（linux/arm64・amd64）で確かめた。CI はメンテナーの承認待ち。
 **#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出ていた。**2026-11-18 にそこへ追試のコメントを投稿した。**
 upstream の main（bfefc3c）で症状が続き、#415 の head（2260f3e）で直ることを、macOS と Docker の Linux arm64 / amd64 で確かめた。
 追試で 3 つ目の症状（`braket_dm` で制御状態が混在すると `controlled_matrix` が制御の順序を逆にする）も見つかり、#415 がこれも直している。
@@ -246,6 +248,7 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
   `prx` 200 枚の qubit が 2,000 shots 中 0 回しか反転しない（`measure_ff` なしなら 281 回）。`braket_sv` は検査を通らないので
   `TypeError` にならず、分岐後のノイズを黙って無視し、分岐前のノイズでは `AttributeError` で落ちる）。原因は `ProgramContext.add_noise_instruction` / `add_kraus_instruction` だけが分岐後も
   各パスに命令を配らないこと。当初の「1 qubit depolarizing はどこでも落ちる」はビット列の読み違いだった（2026-09-30 訂正、issue #14）。
+  upstream PR #433 が直す（2026-11-18 提出、未マージ）。
   厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
   多項サンプリングで作る。エミュレータのノイズモデルも `measure_ff` / `cc_prx` にノイズを付けないので、読み出し bit-flip と
   1q depolarizing を `runner/n15_iterative.py` で手で足す
@@ -381,7 +384,7 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
-| SDK バグの upstream 報告 | #14 は issue で先に出してメンテナーの反応を見る（upstream の issue 422、2026-11-06 投稿）。修正とテストはフォークに未 push で用意。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更、2026-11-18 投稿）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
+| SDK バグの upstream 報告 | #14 は issue を先に出し（upstream の issue 422、2026-11-06 投稿）、2 週間反応が無かったので修正の PR を出した（upstream PR #433、2026-11-18）。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更、2026-11-18 投稿）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
 | upstream 向けコミットの署名 | Syota さんのみ。AI の利用は issue / PR の Disclosure に製品名なしで書く（2026-11-06。普段の署名ルールの例外） | 上の「コミットメッセージ」 |
 | SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
 
