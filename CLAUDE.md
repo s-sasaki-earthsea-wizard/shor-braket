@@ -72,7 +72,11 @@ SDK のバグ 2 件は issue #14 / #15 に最小再現つきで記録済み。**
 **2026-11-06: #14 を upstream の issue 422 として投稿した。** 調査の途中で `braket_sv` も分岐後のノイズを黙って無視することが分かり、一緒に報告した。
 **2026-11-18: issue に 2 週間反応が無かったので、修正を upstream PR #433 として出した**（フォークの `fix/noise-after-branching`、f4edcca、3 コミット・テスト 21 件）。
 チームレビューで、issue に載せた修正案の `StateVectorSimulation.evolve` が、渡されたイテレータを検査の `any()` で使い切り、ゲートを掛けないまま成功する退行が見つかった。検査の前に `list()` でコピーする形に直した。
-Python 3.11〜3.13 の tox（2175 passed、カバレッジ 100%）と、`dependent-tests` の手順の Docker 再現（linux/arm64・amd64）で確かめた。CI はメンテナーの承認待ち。
+Python 3.11〜3.13 の tox（2175 passed、カバレッジ 100%）と、`dependent-tests` の手順の Docker 再現（linux/arm64・amd64）で確かめた。
+**2026-11-19: CI は承認されて全部通った。レビューはまだ無い。** upstream の main に #434（CI に Python 3.14 / 3.15 を追加）と
+1.43.1.post0 のリリース（bcd8621。`src/` の変更なし）が入り、メンテナーが PR の「Update branch」でマージコミット 7db5bfe を
+フォークのブランチに積んだ（`src/` と `test/` は変わらない）。3.14 / 3.15 と macOS / Windows を含む CI も全部通った。
+**このブランチで rebase や force push をしない。** 追加のコミットは `git pull --ff-only` で 7db5bfe を取り込んでから積む。
 **#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出ていた。**2026-11-18 にそこへ追試のコメントを投稿した。**
 upstream の main（bfefc3c）で症状が続き、#415 の head（2260f3e）で直ることを、macOS と Docker の Linux arm64 / amd64 で確かめた。
 追試で 3 つ目の症状（`braket_dm` で制御状態が混在すると `controlled_matrix` が制御の順序を逆にする）も見つかり、#415 がこれも直している。
