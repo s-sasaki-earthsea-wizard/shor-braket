@@ -76,7 +76,14 @@ Python 3.11〜3.13 の tox（2175 passed、カバレッジ 100%）と、`depende
 **2026-11-19: CI は承認されて全部通った。レビューはまだ無い。** upstream の main に #434（CI に Python 3.14 / 3.15 を追加）と
 1.43.1.post0 のリリース（bcd8621。`src/` の変更なし）が入り、メンテナーが PR の「Update branch」でマージコミット 7db5bfe を
 フォークのブランチに積んだ（`src/` と `test/` は変わらない）。3.14 / 3.15 と macOS / Windows を含む CI も全部通った。
-**このブランチで rebase や force push をしない。** 追加のコミットは `git pull --ff-only` で 7db5bfe を取り込んでから積む。
+**このブランチで rebase や force push をしない。** 追加のコミットは `git pull --ff-only` でリモートの head を取り込んでから積む。
+**2026-11-20: メンテナー（maolinml）の条件付きレビューに従い、`list()` のコピーとイテレータのテストを外した**（c130d12、新テストは 19 件）。
+`evolve` の型ヒントは `list[GateOperation]` で、シミュレータ内の呼び出し元 5 箇所はすべて list を渡し、main の一括経路も元から `len()` を呼ぶので
+イテレータは契約外。契約外のイテレータを `batch_size=1` で渡すとゲートが掛からなくなる（main では掛かる）が、本文にも返信にも書いていない。
+tox（3.11〜3.13 で 2173 passed、カバレッジ 100%）、再現、性能は c130d12 と main bcd8621 で回し直し、下流テストは f4edcca の結果だと本文に明記した。
+記録は `.claude-notes/2026-11-20-pr433-review-response.md`。
+**2026-11-20T20:12Z: maolinml が approve し、PR #433 を squash マージした**（upstream main の 475c648、issue 422 も自動でクローズ）。
+`src/` と `test/` は c130d12 と同一。リリースはまだ（最新は 1.43.1.post0）。リリースされたら pin を上げ、回避策の要否を見直す（issue #14 の TODO）。
 **#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出ていた。**2026-11-18 にそこへ追試のコメントを投稿した。**
 upstream の main（bfefc3c）で症状が続き、#415 の head（2260f3e）で直ることを、macOS と Docker の Linux arm64 / amd64 で確かめた。
 追試で 3 つ目の症状（`braket_dm` で制御状態が混在すると `controlled_matrix` が制御の順序を逆にする）も見つかり、#415 がこれも直している。
@@ -252,7 +259,7 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
   `prx` 200 枚の qubit が 2,000 shots 中 0 回しか反転しない（`measure_ff` なしなら 281 回）。`braket_sv` は検査を通らないので
   `TypeError` にならず、分岐後のノイズを黙って無視し、分岐前のノイズでは `AttributeError` で落ちる）。原因は `ProgramContext.add_noise_instruction` / `add_kraus_instruction` だけが分岐後も
   各パスに命令を配らないこと。当初の「1 qubit depolarizing はどこでも落ちる」はビット列の読み違いだった（2026-09-30 訂正、issue #14）。
-  upstream PR #433 が直す（2026-11-18 提出、未マージ）。
+  upstream PR #433 が直した（2026-11-20 にマージ、upstream main の 475c648。未リリースなので pin の版には入っていない）。
   厳密分布は `quantum/feedforward.py` の deferred measurement 変換で `braket_dm` の `Probability` から出し、標本はそこからの
   多項サンプリングで作る。エミュレータのノイズモデルも `measure_ff` / `cc_prx` にノイズを付けないので、読み出し bit-flip と
   1q depolarizing を `runner/n15_iterative.py` で手で足す
@@ -388,9 +395,9 @@ Disclosure に、製品名やモデル名を書かずに明記する（2026-11-0
 | 予測モデル | 検証ゲートの判定は従来のエミュレータのまま。待機 T1/T2 を足した予測は `decoherence-study` で並べて記録する（2026-09-23） | `runner/decoherence.py` |
 | `campaign` タグ | 本測定から付ける（`BRAKET_CAMPAIGN`、make の引数で渡す）。キーが課金記録に現れてから stage 3 で `oracle` と一緒に有効化（2026-09-23） | `makefiles/braket.mk` |
 | 結果バケット名 | `amazon-braket-` プレフィクス必須（サービスリンクロールが書ける範囲）。validation で強制 | `infra/terraform/variables.tf` |
-| SDK バグの upstream 報告 | #14 は issue を先に出し（upstream の issue 422、2026-11-06 投稿）、2 週間反応が無かったので修正の PR を出した（upstream PR #433、2026-11-18）。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更、2026-11-18 投稿）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
+| SDK バグの upstream 報告 | #14 は issue を先に出し（upstream の issue 422、2026-11-06 投稿）、2 週間反応が無かったので修正の PR を出した（upstream PR #433、2026-11-18。2026-11-20 にマージ、未リリース）。#15 は PR を出さず、同じバグを直す upstream PR #415 に追試のコメントを残す（2026-11-06 に変更、2026-11-18 投稿）。最小再現は本文のコードブロックに書き、再現スクリプトはリポジトリに入れない（2026-09-30） | issue #14 / #15 |
 | upstream 向けコミットの署名 | Syota さんのみ。AI の利用は issue / PR の Disclosure に製品名なしで書く（2026-11-06。普段の署名ルールの例外） | 上の「コミットメッセージ」 |
-| SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。どちらのバグも未修正 | `docker/requirements.txt` |
+| SDK の pin | amazon-braket-sdk 1.127.3、default-simulator 1.40.2（2026-09-30）。この版ではどちらのバグも未修正（#14 は upstream で修正済み・未リリース、#15 は未マージ） | `docker/requirements.txt` |
 
 ---
 
