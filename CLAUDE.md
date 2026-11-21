@@ -84,6 +84,7 @@ tox（3.11〜3.13 で 2173 passed、カバレッジ 100%）、再現、性能は
 記録は `.claude-notes/2026-11-20-pr433-review-response.md`。
 **2026-11-20T20:12Z: maolinml が approve し、PR #433 を squash マージした**（upstream main の 475c648、issue 422 も自動でクローズ）。
 `src/` と `test/` は c130d12 と同一。リリースはまだ（最新は 1.43.1.post0）。リリースされたら pin を上げ、回避策の要否を見直す（issue #14 の TODO）。
+2026-11-21 にフォークの `fix/noise-after-branching` をリモート・ローカルとも削除し、フォークの main とローカルの clone を 475c648 に揃えた（上の rebase 禁止はこれで役目を終えた）。
 **#15 は自分たちの PR を出さない。** 同じバグを直す upstream PR #415 が 10 月に出ていた。**2026-11-18 にそこへ追試のコメントを投稿した。**
 upstream の main（bfefc3c）で症状が続き、#415 の head（2260f3e）で直ることを、macOS と Docker の Linux arm64 / amd64 で確かめた。
 追試で 3 つ目の症状（`braket_dm` で制御状態が混在すると `controlled_matrix` が制御の順序を逆にする）も見つかり、#415 がこれも直している。
